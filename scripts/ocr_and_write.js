@@ -3,11 +3,34 @@ const path = require('path');
 const https = require('https');
 const http = require('http');
 const { createWorker } = require('tesseract.js');
+const { buildAiInput, parseAiResponse, fallbackSummaryTags } = require('./ai/summary');
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(PROJECT_DIR, 'output');
 const IMG_DIR = path.join(OUTPUT_DIR, '_images');
 const RAW_PATH = path.join(PROJECT_DIR, 'data', 'raw_notes.json');
+
+const CONFIG_PATH = path.join(PROJECT_DIR, 'config', 'openrouter.json');
+
+function loadConfig() {
+  if (!fs.existsSync(CONFIG_PATH)) {
+    return { _missing: true };
+  }
+  try {
+    const rawText = fs.readFileSync(CONFIG_PATH, 'utf-8');
+    return JSON.parse(rawText);
+  } catch (e) {
+    console.error(`Config parse error: ${e.message}`);
+    return { _invalid: true };
+  }
+}
+
+const CONFIG = loadConfig();
+const OPENROUTER_API_KEY = CONFIG.apiKey || '';
+const OPENROUTER_MODEL = CONFIG.model || 'openrouter/free';
+const OPENROUTER_BASE_URL = CONFIG.baseUrl || 'https://openrouter.ai/api/v1';
+const OPENROUTER_TIMEOUT_MS = Number(CONFIG.timeoutMs || 30000);
+const AI_ENABLED = CONFIG.enabled !== false && !!OPENROUTER_API_KEY;
 
 const raw = JSON.parse(fs.readFileSync(RAW_PATH, 'utf-8'));
 
@@ -73,6 +96,16 @@ function cleanDate(dateStr) {
   return dateStr;
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function truncateText(text, maxChars) {
+  const t = text || '';
+  if (t.length <= maxChars) return t;
+  return t.substring(0, maxChars);
+}
+
 function downloadImage(url, filepath) {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https') ? https : http;
@@ -129,14 +162,119 @@ async function ocrImages(images, noteId) {
   return results;
 }
 
-function generateMarkdown(note, ocrTexts) {
+function postJson(url, headers, body, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body);
+    const target = new URL(url);
+    const req = https.request({
+      method: 'POST',
+      protocol: target.protocol,
+      hostname: target.hostname,
+      path: `${target.pathname}${target.search}`,
+      headers: {
+        ...headers,
+        'Content-Length': Buffer.byteLength(data)
+      }
+    }, res => {
+      let rawData = '';
+      res.on('data', chunk => { rawData += chunk; });
+      res.on('end', () => {
+        if (res.statusCode && res.statusCode >= 400) {
+          return reject(new Error(`HTTP ${res.statusCode}: ${rawData.substring(0, 200)}`));
+        }
+        resolve(rawData);
+      });
+    });
+
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error('OpenRouter request timeout'));
+    });
+    req.on('error', reject);
+    req.write(data);
+    req.end();
+  });
+}
+
+async function callOpenRouter(input) {
+  if (!AI_ENABLED) {
+    throw new Error('AI disabled (config missing apiKey or enabled=false)');
+  }
+
+  const prompt = [
+    '你是内容助理。请只输出 JSON，不要包含其它文字。',
+    'JSON 格式：',
+    '{"summary":"一句话(<=50字)","tags":["标签1","标签2","标签3"]}',
+    '要求：summary 为中文一句话，tags 为 3-5 个中文名词短语。',
+    '以下是内容：',
+    input
+  ].join('\n');
+
+  const payload = {
+    model: OPENROUTER_MODEL,
+    messages: [
+      { role: 'system', content: '你是一个严谨的 JSON 生成器，只输出 JSON。' },
+      { role: 'user', content: prompt }
+    ],
+    temperature: 0.2
+  };
+
+  const endpoint = `${OPENROUTER_BASE_URL.replace(/\\/$/, '')}/chat/completions`;
+  const headers = {
+    'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+    'Content-Type': 'application/json',
+    'HTTP-Referer': 'https://github.com/nonomil/XiaoHongshu_Collection',
+    'X-Title': 'XiaoHongshu Collection OCR Summarizer'
+  };
+
+  const rawText = await postJson(endpoint, headers, payload, OPENROUTER_TIMEOUT_MS);
+  const parsed = JSON.parse(rawText);
+  const content = parsed?.choices?.[0]?.message?.content || '';
+  if (!content) throw new Error('OpenRouter empty response');
+  return parseAiResponse(content);
+}
+
+function normalizeSummaryTags(ai, fallback) {
+  let summary = (ai.summary || '').replace(/\\s+/g, ' ').trim();
+  if (!summary) summary = fallback.summary;
+  if (summary.length > 50) summary = summary.substring(0, 50);
+
+  const combined = [...(ai.tags || []), ...(fallback.tags || [])].map(t => String(t).trim()).filter(Boolean);
+  const tags = Array.from(new Set(combined));
+  while (tags.length < 3) tags.push('笔记');
+  return { summary, tags: tags.slice(0, 5) };
+}
+
+async function getSummaryTags(note, content, ocrTexts) {
+  const fallback = fallbackSummaryTags({ title: note.title, content, noteTags: note.tags });
+  if (!AI_ENABLED) return fallback;
+
+  const input = buildAiInput({
+    title: note.title,
+    content: truncateText(content, 1500),
+    ocrTexts: (ocrTexts || []).map(o => ({ text: truncateText(o.text, 800) }))
+  });
+
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const ai = await callOpenRouter(input);
+      return normalizeSummaryTags(ai, fallback);
+    } catch (e) {
+      console.error(`  AI summary failed (attempt ${attempt}/${maxAttempts}): ${e.message}`);
+      if (attempt === maxAttempts) return fallback;
+      await sleep(500 * attempt);
+    }
+  }
+  return fallback;
+}
+
+function generateMarkdown(note, content, ocrTexts, summary, tags) {
   const author = cleanAuthor(note.author);
-  const content = cleanContent(note.content, note.title);
   const date = cleanDate(note.date);
   const shortNote = content.length < 50;
-  const tags = ['小红书', ...note.tags];
   const sourceUrl = `https://www.xiaohongshu.com/discovery/item/${note.noteId}`;
-  const summary = (content || '').split('\n')[0].substring(0, 80) || note.title;
+  const safeSummary = summary || note.title || '';
+  const safeTags = (tags && tags.length > 0) ? tags : ['小红书', ...note.tags];
 
   let md = '---\n';
   md += `title: "${note.title}"\n`;
@@ -144,8 +282,8 @@ function generateMarkdown(note, ocrTexts) {
   md += `author: "${author}"\n`;
   md += `collection: "${note.collection}"\n`;
   md += `saved_date: "${date}"\n`;
-  md += `summary: "${summary}"\n`;
-  md += `tags: [${tags.join(', ')}]\n`;
+  md += `summary: "${safeSummary}"\n`;
+  md += `tags: [${safeTags.join(', ')}]\n`;
   md += `short_note: ${shortNote}\n`;
   md += '---\n\n';
 
@@ -176,6 +314,14 @@ function generateMarkdown(note, ocrTexts) {
 async function main() {
   fs.mkdirSync(IMG_DIR, { recursive: true });
 
+  if (CONFIG._missing) {
+    console.log('Config not found. Create config/openrouter.json to enable AI summary/tags.');
+  } else if (CONFIG._invalid) {
+    console.log('Config invalid. Please fix config/openrouter.json to enable AI summary/tags.');
+  } else if (!AI_ENABLED) {
+    console.log('AI disabled (enabled=false or apiKey missing). Using fallback summary/tags.');
+  }
+
   let totalWritten = 0;
   const failedWrites = [];
 
@@ -197,11 +343,14 @@ async function main() {
         console.error(`  OCR error: ${e.message}`);
       }
 
+      const content = cleanContent(note.content, note.title);
+      const { summary, tags } = await getSummaryTags(note, content, ocrTexts);
+
       // Write markdown
       const filename = sanitizeFilename(note.title || `note_${note.noteId}`) + '.md';
       const filepath = path.join(boardDir, filename);
       try {
-        const md = generateMarkdown(note, ocrTexts);
+        const md = generateMarkdown(note, content, ocrTexts, summary, tags);
         fs.writeFileSync(filepath, md, 'utf-8');
         console.log(`  Written: ${filepath}`);
         totalWritten++;
