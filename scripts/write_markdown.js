@@ -1,8 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const OUTPUT_DIR = 'D:/Obsidian/小红书收藏';
-const RAW_PATH = 'G:/UserCode/XiaoHongshu_Collection/output/raw_notes.json';
+const PROJECT_DIR = path.resolve(__dirname, '..');
+const OUTPUT_DIR = path.join(PROJECT_DIR, 'output');
+const RAW_PATH = path.join(PROJECT_DIR, 'data', 'raw_notes.json');
 
 const raw = JSON.parse(fs.readFileSync(RAW_PATH, 'utf-8'));
 

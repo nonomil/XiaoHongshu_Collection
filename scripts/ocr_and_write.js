@@ -4,10 +4,10 @@ const https = require('https');
 const http = require('http');
 const { createWorker } = require('tesseract.js');
 
-const PROJECT_DIR = 'G:/UserCode/XiaoHongshu_Collection';
+const PROJECT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(PROJECT_DIR, 'output');
-const IMG_DIR = path.join(PROJECT_DIR, 'output', '_images');
-const RAW_PATH = path.join(PROJECT_DIR, 'output', 'raw_notes.json');
+const IMG_DIR = path.join(OUTPUT_DIR, '_images');
+const RAW_PATH = path.join(PROJECT_DIR, 'data', 'raw_notes.json');
 
 const raw = JSON.parse(fs.readFileSync(RAW_PATH, 'utf-8'));
 
