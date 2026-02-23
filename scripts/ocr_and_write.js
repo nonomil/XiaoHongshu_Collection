@@ -218,7 +218,7 @@ async function callOpenRouter(input) {
     temperature: 0.2
   };
 
-  const endpoint = `${OPENROUTER_BASE_URL.replace(/\\/$/, '')}/chat/completions`;
+  const endpoint = `${OPENROUTER_BASE_URL.replace(/\/$/, '')}/chat/completions`;
   const headers = {
     'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
     'Content-Type': 'application/json',
