@@ -1,0 +1,2 @@
+# XiaoHongshu_Collection
+小红书收藏导出到本地markdown，支持图片ocr识别文字，整理格式，AI总结和标签
