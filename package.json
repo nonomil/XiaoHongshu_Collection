@@ -1,4 +1,11 @@
 {
+  "scripts": {
+    "extract": "node scripts/extract_v4.js",
+    "ocr": "node scripts/ocr_and_write.js",
+    "save-note": "node scripts/save_note.js",
+    "ui": "node scripts/ui_server.js",
+    "test": "node --test scripts/ai/__tests__/*.test.js"
+  },
   "dependencies": {
     "tesseract.js": "^7.0.0",
     "ws": "^8.19.0"

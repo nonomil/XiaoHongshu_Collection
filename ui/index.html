@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>小红书保存入口</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <p class="eyebrow">LOCAL NOTE TOOL</p>
+      <h1>小红书保存入口</h1>
+      <p class="subtitle">保留两个最常用入口：链接保存笔记、收藏保存笔记。都直接复用现有 Node 脚本，不引入额外前端框架。</p>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <div class="card-head">
+          <p class="card-kicker">入口 01</p>
+          <h2>链接保存笔记</h2>
+          <p>粘贴分享文案、多个链接，或混合文本。系统会自动提取小红书链接、去重并顺序保存。</p>
+        </div>
+
+        <form id="links-form" class="card-body">
+          <label class="field">
+            <span>分享文本或多行链接</span>
+            <textarea id="links-text" name="text" rows="10" placeholder="把分享文案、多个小红书链接或混合文本粘贴到这里"></textarea>
+          </label>
+          <button id="links-submit" class="button" type="submit">开始保存链接</button>
+        </form>
+      </article>
+
+      <article class="card accent">
+        <div class="card-head">
+          <p class="card-kicker">入口 02</p>
+          <h2>收藏保存笔记</h2>
+          <p>顺序执行现有收藏夹抓取与 OCR 导出脚本，适合一次性导出当前收藏内容。</p>
+        </div>
+
+        <div class="card-body">
+          <p class="hint">会依次运行 `extract_v4.js` 和 `ocr_and_write.js`。</p>
+          <button id="collection-submit" class="button secondary" type="button">开始保存收藏</button>
+        </div>
+      </article>
+    </section>
+
+    <section class="result-card">
+      <div class="result-head">
+        <h2>执行结果</h2>
+        <p id="status-text">等待任务开始</p>
+      </div>
+      <pre id="result-output" class="result-output">暂无输出</pre>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

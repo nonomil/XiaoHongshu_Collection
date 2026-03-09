@@ -1,4 +1,6 @@
 .worktrees/
 node_modules/
 output/
+.cache/
 config/openrouter.json
+config/vision-ocr.json
