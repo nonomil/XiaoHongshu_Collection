@@ -5,6 +5,7 @@ const { spawn } = require('child_process');
 const { saveLinksText } = require('./save_note');
 const { runTaskPipeline } = require('./lib/pipeline');
 const { resolveProjectPaths } = require('./lib/config');
+const { loadUiConfig, mergeUiConfig, saveUiConfig } = require('./lib/ui_config');
 const { logError, logInfo } = require('./lib/logger');
 const { buildTaskResult, buildTaskSummary } = require('./lib/report');
 const {
@@ -17,6 +18,7 @@ const PATHS = resolveProjectPaths(path.resolve(__dirname, '..'));
 const PROJECT_DIR = PATHS.projectDir;
 const UI_DIR = path.join(PROJECT_DIR, 'ui');
 const DEFAULT_PORT = Number(process.env.XHS_UI_PORT || 3030);
+const DEFAULT_UI_CONFIG_PATH = path.join(PATHS.configDir, 'ui.json');
 
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -95,11 +97,12 @@ function serveStatic(request, response, uiDir = UI_DIR) {
   fs.createReadStream(filepath).pipe(response);
 }
 
-function runNodeScript(scriptRelativePath) {
+function runNodeScript(scriptRelativePath, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [path.join(PROJECT_DIR, scriptRelativePath)], {
       cwd: PROJECT_DIR,
-      windowsHide: true
+      windowsHide: true,
+      env: { ...process.env, ...(options.env || {}) }
     });
     let stdout = '';
     let stderr = '';
@@ -130,15 +133,40 @@ function runNodeScript(scriptRelativePath) {
   });
 }
 
-async function runCollectionExport(task) {
+function buildCollectionEnv(overrides = {}) {
+  const env = {};
+  if (overrides.collectionRawPath) env.XHS_RAW_PATH = overrides.collectionRawPath;
+  if (overrides.collectionOutputRoot) env.XHS_OUTPUT_ROOT = overrides.collectionOutputRoot;
+  if (overrides.conflictStrategy) env.XHS_CONFLICT_STRATEGY = overrides.conflictStrategy;
+  if (overrides.maxTitleLength) env.XHS_MAX_TITLE_LENGTH = String(overrides.maxTitleLength);
+  const runtime = overrides.runtime || {};
+  if (runtime.aiSummaryEnabled === false) env.XHS_AI_SUMMARY_ENABLED = '0';
+  if (runtime.visionOcrEnabled === false) env.XHS_VISION_OCR_ENABLED = '0';
+  if (runtime.ocrFallbackEnabled === false) env.XHS_OCR_FALLBACK_ENABLED = '0';
+  if (runtime.openRouterTimeoutMs) env.XHS_OPENROUTER_TIMEOUT_MS = String(runtime.openRouterTimeoutMs);
+  if (runtime.visionOcrTimeoutMs) env.XHS_VISION_OCR_TIMEOUT_MS = String(runtime.visionOcrTimeoutMs);
+  if (runtime.maxImagesPerNote) env.XHS_MAX_IMAGES_PER_NOTE = String(runtime.maxImagesPerNote);
+  return env;
+}
+
+function resolveUiConfig(configPath, payload) {
+  const stored = loadUiConfig({ configPath });
+  const incoming = payload && typeof payload === 'object'
+    ? (payload.uiConfig || payload.config || payload)
+    : {};
+  return mergeUiConfig(stored, incoming);
+}
+
+async function runCollectionExport(task, options = {}) {
+  const env = buildCollectionEnv(options.overrides || {});
   if (task) {
     assertValidTask(task);
   }
   const pipeline = await runTaskPipeline({
     task: task || buildCollectionTask({ source: 'ui' }),
-    fetchFn: async () => runNodeScript('scripts/extract_v4.js'),
+    fetchFn: async () => runNodeScript('scripts/extract_v4.js', { env }),
     enrichFn: async (payload) => payload,
-    writeFn: async () => runNodeScript('scripts/ocr_and_write.js'),
+    writeFn: async () => runNodeScript('scripts/ocr_and_write.js', { env }),
     reportFn: async (payload) => {
       const fetchResult = payload.steps.fetch?.data;
       const writeResult = payload.steps.write?.data;
@@ -165,7 +193,8 @@ async function runCollectionExport(task) {
 function createUiServer({
   saveLinksText: saveLinks = saveLinksText,
   runCollectionExport: runCollection = runCollectionExport,
-  uiDir = UI_DIR
+  uiDir = UI_DIR,
+  uiConfigPath = DEFAULT_UI_CONFIG_PATH
 } = {}) {
   let activeTask = '';
 
@@ -189,7 +218,20 @@ function createUiServer({
       const url = new URL(request.url, 'http://127.0.0.1');
 
       if (request.method === 'GET') {
+        if (url.pathname === '/api/ui-config') {
+          const config = loadUiConfig({ configPath: uiConfigPath });
+          sendJson(response, 200, { ok: true, config });
+          return;
+        }
         serveStatic(request, response, uiDir);
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/ui-config') {
+        const payload = await readJsonBody(request);
+        const merged = resolveUiConfig(uiConfigPath, payload);
+        saveUiConfig({ configPath: uiConfigPath, payload: merged });
+        sendJson(response, 200, { ok: true, config: merged });
         return;
       }
 
@@ -204,9 +246,18 @@ function createUiServer({
           return;
         }
 
+        const uiConfig = resolveUiConfig(uiConfigPath, payload);
         const task = buildNoteSaveTask({ input: text, source: 'ui' });
         assertValidTask(task);
-        const summary = await runExclusive('save-links', () => saveLinks(text, { task, source: 'ui' }));
+        const summary = await runExclusive('save-links', () => saveLinks(text, {
+          task,
+          source: 'ui',
+          outputRoot: uiConfig.paths.saveLinksOutputRoot || undefined,
+          imagesRoot: uiConfig.paths.saveLinksImagesRoot || undefined,
+          conflictStrategy: uiConfig.naming.conflictStrategy,
+          maxTitleLength: uiConfig.naming.maxTitleLength,
+          uiRuntime: uiConfig.runtime
+        }));
         const report = buildTaskSummary(summary.results || [], { includeWarnings: true });
         sendJson(response, 200, {
           ok: true,
@@ -217,9 +268,19 @@ function createUiServer({
       }
 
       if (request.method === 'POST' && url.pathname === '/api/save-collection') {
+        const payload = await readJsonBody(request);
+        const uiConfig = resolveUiConfig(uiConfigPath, payload);
         const task = buildCollectionTask({ source: 'ui' });
         assertValidTask(task);
-        const result = await runExclusive('save-collection', () => runCollection(task));
+        const result = await runExclusive('save-collection', () => runCollection(task, {
+          overrides: {
+            collectionOutputRoot: uiConfig.paths.collectionOutputRoot || undefined,
+            collectionRawPath: uiConfig.paths.collectionRawPath || undefined,
+            conflictStrategy: uiConfig.naming.conflictStrategy,
+            maxTitleLength: uiConfig.naming.maxTitleLength,
+            runtime: uiConfig.runtime
+          }
+        }));
         const report = buildTaskResult({
           status: 'success',
           task,
@@ -269,6 +330,7 @@ if (require.main === module) {
 
 module.exports = {
   DEFAULT_PORT,
+  buildCollectionEnv,
   createUiServer,
   readJsonBody,
   resolveStaticFile,
