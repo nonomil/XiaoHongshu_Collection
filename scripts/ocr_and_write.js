@@ -9,6 +9,7 @@ const { applyOcrRules, computeOcrAnomalyScore, shouldAiCorrect } = require('./ai
 const { cleanTags } = require('./ai/tag_clean');
 const { resolveTessdataPrefix } = require('./ai/tesseract_path');
 const { resolveCollectionOutputRoot, resolveCollectionRawPath } = require('./lib/collection_paths');
+const { resolveMarkdownConflict } = require('./lib/output_naming');
 const { loadOpenRouterConfig, resolveProjectPaths } = require('./lib/config');
 
 const PATHS = resolveProjectPaths(path.resolve(__dirname, '..'));
@@ -20,20 +21,43 @@ if (!process.env.TESSDATA_PREFIX || !String(process.env.TESSDATA_PREFIX).trim())
   process.env.TESSDATA_PREFIX = resolveTessdataPrefix('');
 }
 
+function resolveNumberEnv(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function parseEnvBool(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const normalized = String(value).trim().toLowerCase();
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  return null;
+}
+
 const CONFIG = loadOpenRouterConfig({ projectDir: PROJECT_DIR });
 const OPENROUTER_API_KEY = CONFIG.apiKey || '';
 const OPENROUTER_MODEL = CONFIG.model || 'openrouter/free';
 const OPENROUTER_BASE_URL = CONFIG.baseUrl || 'https://openrouter.ai/api/v1';
-const OPENROUTER_TIMEOUT_MS = Number(CONFIG.timeoutMs || 30000);
-const AI_ENABLED = !CONFIG._missing && !CONFIG._invalid && CONFIG.enabled !== false && !!OPENROUTER_API_KEY;
+const OPENROUTER_TIMEOUT_MS = resolveNumberEnv(process.env.XHS_OPENROUTER_TIMEOUT_MS)
+  || Number(CONFIG.timeoutMs || 30000);
+const AI_ENABLED = !CONFIG._missing
+  && !CONFIG._invalid
+  && CONFIG.enabled !== false
+  && !!OPENROUTER_API_KEY
+  && parseEnvBool(process.env.XHS_AI_SUMMARY_ENABLED) !== false;
 const OCR_POST_CORRECT = CONFIG.ocrPostCorrect !== false;
 const OCR_POST_CORRECT_THRESHOLD = Number(CONFIG.ocrPostCorrectThreshold || 0.55);
 const OCR_POST_CORRECT_MAX_CHARS = Number(CONFIG.ocrPostCorrectMaxChars || 1200);
+const OCR_ENABLED = parseEnvBool(process.env.XHS_OCR_FALLBACK_ENABLED) !== false;
+const MAX_IMAGES_PER_NOTE = resolveNumberEnv(process.env.XHS_MAX_IMAGES_PER_NOTE) || 0;
+const CONFLICT_STRATEGY = String(process.env.XHS_CONFLICT_STRATEGY || '').trim();
+const MAX_TITLE_LENGTH = resolveNumberEnv(process.env.XHS_MAX_TITLE_LENGTH) || 80;
 
 const raw = JSON.parse(fs.readFileSync(RAW_PATH, 'utf-8'));
 
-function sanitizeFilename(name) {
-  return name.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim().substring(0, 80);
+function sanitizeFilename(name, maxLength = MAX_TITLE_LENGTH) {
+  return name.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim().substring(0, maxLength);
 }
 
 function cleanAuthor(author) {
@@ -136,12 +160,14 @@ function downloadImage(url, filepath) {
 }
 
 async function ocrImages(images, imagesDir, noteId) {
-  if (!images || images.length === 0) return [];
+  if (!OCR_ENABLED || !images || images.length === 0) return [];
 
   const contentImages = images.filter(url =>
     url.includes('spectrum/') || url.includes('notes_pre_post/') || url.includes('sns-webpic')
   );
   if (contentImages.length === 0) return [];
+  const limit = MAX_IMAGES_PER_NOTE > 0 ? MAX_IMAGES_PER_NOTE : contentImages.length;
+  const limitedImages = contentImages.slice(0, limit);
 
   const worker = await createWorker('chi_sim+eng', 1, {
     langPath: TESSDATA_PATH
@@ -151,13 +177,13 @@ async function ocrImages(images, imagesDir, noteId) {
   const noteImgDir = path.join(imagesDir, noteId);
   fs.mkdirSync(noteImgDir, { recursive: true });
 
-  for (let i = 0; i < contentImages.length; i++) {
-    const url = contentImages[i];
+  for (let i = 0; i < limitedImages.length; i++) {
+    const url = limitedImages[i];
     const ext = url.includes('.png') ? '.png' : '.jpg';
     const imgPath = path.join(noteImgDir, `img_${i}${ext}`);
 
     try {
-      console.log(`    Downloading image ${i + 1}/${contentImages.length}...`);
+      console.log(`    Downloading image ${i + 1}/${limitedImages.length}...`);
       await downloadImage(url, imgPath);
 
       console.log(`    OCR image ${i + 1}...`);
@@ -445,8 +471,11 @@ async function main() {
       const filepath = path.join(boardDir, filename);
       try {
         const md = generateMarkdown(note, content, ocrTexts, summary, tags);
-        fs.writeFileSync(filepath, md, 'utf-8');
-        console.log(`  Written: ${filepath}`);
+        const targetPath = CONFLICT_STRATEGY === 'content-aware'
+          ? resolveMarkdownConflict({ filepath, nextMarkdown: md })
+          : filepath;
+        fs.writeFileSync(targetPath, md, 'utf-8');
+        console.log(`  Written: ${targetPath}`);
         totalWritten++;
       } catch (e) {
         console.error(`  Write failed: ${e.message}`);
