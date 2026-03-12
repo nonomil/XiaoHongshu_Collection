@@ -759,6 +759,31 @@ function buildSingleNoteExportResult({
   };
 }
 
+function applyRuntimeOverrides(baseConfig, runtime = {}) {
+  if (!runtime || typeof runtime !== 'object') return { ...baseConfig };
+  const next = { ...baseConfig };
+  if (runtime.aiSummaryEnabled === false) next.enabled = false;
+  if (runtime.openRouterTimeoutMs) next.timeoutMs = Number(runtime.openRouterTimeoutMs);
+  return next;
+}
+
+function applyVisionRuntimeOverrides(baseConfig, runtime = {}) {
+  if (!runtime || typeof runtime !== 'object') return { ...baseConfig };
+  const next = { ...baseConfig };
+  if (runtime.visionOcrEnabled === false) next.enabled = false;
+  if (runtime.ocrFallbackEnabled === false) next.fallbackToTesseract = false;
+  if (runtime.visionOcrTimeoutMs) next.timeoutMs = Number(runtime.visionOcrTimeoutMs);
+  if (runtime.maxImagesPerNote) next.maxImagesPerNote = Number(runtime.maxImagesPerNote);
+  return next;
+}
+
+function limitImages(images, maxImagesPerNote) {
+  if (!Array.isArray(images)) return [];
+  const limit = Number(maxImagesPerNote || 0);
+  if (!limit || Number.isNaN(limit)) return images;
+  return images.slice(0, Math.max(0, limit));
+}
+
 async function processSingleNoteExport({
   outputRoot,
   imagesRoot,
@@ -766,17 +791,23 @@ async function processSingleNoteExport({
   configPath,
   visionConfigPath,
   conflictStrategy,
-  maxTitleLength
+  maxTitleLength,
+  runtime
 }) {
   const projectDir = path.dirname(outputRoot);
-  const config = loadOpenRouterConfig({ projectDir, configPath });
-  const visionConfig = loadVisionOcrConfig({ projectDir, configPath: visionConfigPath });
+  const config = applyRuntimeOverrides(loadOpenRouterConfig({ projectDir, configPath }), runtime);
+  const visionConfig = applyVisionRuntimeOverrides(
+    loadVisionOcrConfig({ projectDir, configPath: visionConfigPath }),
+    runtime
+  );
   const content = cleanContent(note.content, note.title);
+  const images = limitImages(note.images, runtime?.maxImagesPerNote);
   const ocrTexts = await runOcrWithProvider({
-    images: note.images,
+    images,
     noteId: note.noteId,
     imagesRoot,
     visionConfig,
+    tesseractEnabled: runtime?.ocrFallbackEnabled !== false,
     runVisionOcr: ocrImagesWithVision,
     runTesseractOcr: ocrImages
   });

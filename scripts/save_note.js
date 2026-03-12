@@ -331,7 +331,8 @@ async function saveMode(mode, options = {}) {
       configPath: options.configPath || CONFIG_PATH,
       visionConfigPath: options.visionConfigPath,
       conflictStrategy: options.conflictStrategy,
-      maxTitleLength: options.maxTitleLength
+      maxTitleLength: options.maxTitleLength,
+      runtime: options.uiRuntime
     }),
     reportFn: async (payload) => ({
       note: payload.steps.fetch?.data,
