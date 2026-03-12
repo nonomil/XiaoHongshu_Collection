@@ -1,57 +1,169 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>小红书保存入口</title>
+  <title>小红书本地保存控制台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Libre+Bodoni:wght@400;500;600;700&family=Public+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <main class="page">
-    <section class="hero">
-      <p class="eyebrow">LOCAL NOTE TOOL</p>
-      <h1>小红书保存入口</h1>
-      <p class="subtitle">保留两个最常用入口：链接保存笔记、收藏保存笔记。都直接复用现有 Node 脚本，不引入额外前端框架。</p>
-    </section>
+    <header class="hero">
+      <p class="eyebrow">LOCAL XHS WORKBENCH</p>
+      <h1>小红书本地保存控制台</h1>
+      <p class="subtitle">面向日常使用的本地工具：支持路径配置、命名规则与运行参数，一次配置、稳定执行。</p>
+      <div class="hero-meta">
+        <span>输出路径</span>
+        <span>命名规则</span>
+        <span>运行参数</span>
+        <span>结果总结</span>
+      </div>
+    </header>
 
-    <section class="grid">
-      <article class="card">
-        <div class="card-head">
-          <p class="card-kicker">入口 01</p>
-          <h2>链接保存笔记</h2>
-          <p>粘贴分享文案、多个链接，或混合文本。系统会自动提取小红书链接、去重并顺序保存。</p>
+    <section class="layout">
+      <div class="stack">
+        <article class="card">
+          <div class="card-head">
+            <p class="card-kicker">入口 01</p>
+            <h2>链接保存笔记</h2>
+            <p>粘贴分享文本或多个链接，系统自动识别小红书链接并顺序保存。适合临时批量采集。</p>
+          </div>
+
+          <form id="links-form" class="card-body">
+            <label class="field">
+              <span>分享文本或多行链接</span>
+              <textarea id="links-text" name="text" rows="10" placeholder="把分享文案、多个小红书链接或混合文本粘贴到这里"></textarea>
+            </label>
+            <div class="button-row">
+              <button id="links-submit" class="button" type="submit">开始保存链接</button>
+              <button id="links-clear" class="button ghost" type="button">清空文本</button>
+            </div>
+          </form>
+        </article>
+
+        <article class="card accent">
+          <div class="card-head">
+            <p class="card-kicker">入口 02</p>
+            <h2>收藏导出 + OCR</h2>
+            <p>执行收藏夹抓取与 OCR 写入流程，适合一次性导出当前收藏内容。</p>
+          </div>
+
+          <div class="card-body">
+            <div class="inline-hints">
+              <span>extract_v4.js</span>
+              <span>ocr_and_write.js</span>
+            </div>
+            <div class="button-row">
+              <button id="collection-submit" class="button secondary" type="button">开始导出收藏</button>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <aside class="panel">
+        <div class="panel-head">
+          <h2>保存配置</h2>
+          <p>配置只作用于 UI 请求，不影响 CLI 默认行为。</p>
         </div>
+        <form id="config-form" class="panel-body">
+          <div class="panel-section">
+            <h3>路径设置</h3>
+            <label class="field">
+              <span>链接保存输出目录</span>
+              <input id="path-links-output" type="text" placeholder="默认：output/单条笔记保存">
+            </label>
+            <label class="field">
+              <span>链接保存图片目录</span>
+              <input id="path-links-images" type="text" placeholder="默认：output/_images">
+            </label>
+            <label class="field">
+              <span>收藏导出输出目录</span>
+              <input id="path-collection-output" type="text" placeholder="默认：output/">
+            </label>
+            <label class="field">
+              <span>收藏原始数据路径</span>
+              <input id="path-collection-raw" type="text" placeholder="默认：data/raw_notes.json">
+            </label>
+          </div>
 
-        <form id="links-form" class="card-body">
-          <label class="field">
-            <span>分享文本或多行链接</span>
-            <textarea id="links-text" name="text" rows="10" placeholder="把分享文案、多个小红书链接或混合文本粘贴到这里"></textarea>
-          </label>
-          <button id="links-submit" class="button" type="submit">开始保存链接</button>
+          <div class="panel-section">
+            <h3>命名规则</h3>
+            <label class="field">
+              <span>冲突处理策略</span>
+              <select id="naming-strategy">
+                <option value="content-aware">正文一致覆盖，正文不同自动加后缀</option>
+                <option value="overwrite">无条件覆盖</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>标题最长字符数</span>
+              <input id="naming-max-length" type="number" min="10" max="120" step="1" placeholder="默认 80">
+            </label>
+          </div>
+
+          <div class="panel-section">
+            <h3>运行参数</h3>
+            <div class="toggle-row">
+              <label class="toggle">
+                <input id="runtime-ai" type="checkbox">
+                <span>AI 总结与标签</span>
+              </label>
+              <label class="toggle">
+                <input id="runtime-vision" type="checkbox">
+                <span>Vision OCR</span>
+              </label>
+              <label class="toggle">
+                <input id="runtime-ocr-fallback" type="checkbox">
+                <span>OCR 兜底</span>
+              </label>
+            </div>
+            <label class="field">
+              <span>OpenRouter 超时 (ms)</span>
+              <input id="runtime-openrouter-timeout" type="number" min="1000" step="1000" placeholder="默认 30000">
+            </label>
+            <label class="field">
+              <span>Vision OCR 超时 (ms)</span>
+              <input id="runtime-vision-timeout" type="number" min="1000" step="1000" placeholder="默认 60000">
+            </label>
+            <label class="field">
+              <span>每条笔记最多 OCR 图片数</span>
+              <input id="runtime-max-images" type="number" min="1" max="50" step="1" placeholder="默认 12">
+            </label>
+          </div>
+
+          <div class="panel-section">
+            <h3>展示</h3>
+            <label class="toggle">
+              <input id="ui-show-raw" type="checkbox">
+              <span>显示原始报告 JSON</span>
+            </label>
+          </div>
+
+          <div class="button-row">
+            <button id="config-save" class="button" type="submit">保存配置</button>
+            <button id="config-reload" class="button ghost" type="button">重新加载</button>
+          </div>
+          <p id="config-status" class="status-text">配置未保存</p>
         </form>
-      </article>
-
-      <article class="card accent">
-        <div class="card-head">
-          <p class="card-kicker">入口 02</p>
-          <h2>收藏保存笔记</h2>
-          <p>顺序执行现有收藏夹抓取与 OCR 导出脚本，适合一次性导出当前收藏内容。</p>
-        </div>
-
-        <div class="card-body">
-          <p class="hint">会依次运行 `extract_v4.js` 和 `ocr_and_write.js`。</p>
-          <button id="collection-submit" class="button secondary" type="button">开始保存收藏</button>
-        </div>
-      </article>
+      </aside>
     </section>
 
     <section class="result-card">
       <div class="result-head">
-        <h2>执行结果</h2>
-        <p id="status-text">等待任务开始</p>
+        <div>
+          <h2>执行结果</h2>
+          <p id="status-text">等待任务开始</p>
+        </div>
+        <div class="result-meta" id="result-meta"></div>
       </div>
-      <pre id="result-output" class="result-output">暂无输出</pre>
-      <p class="result-hint">输出为后端统一 report 的原始 JSON，便于排查与后续接入。</p>
+      <div id="result-summary" class="result-summary"></div>
+      <details id="raw-report" class="raw-report">
+        <summary>原始报告（JSON）</summary>
+        <pre id="result-output" class="result-output">暂无输出</pre>
+      </details>
     </section>
   </main>
 
