@@ -22,6 +22,7 @@ const {
 } = require('./lib/task');
 const { resolveProjectPaths } = require('./lib/config');
 const { classifyTaskError } = require('./lib/errors');
+const { buildTaskSummary } = require('./lib/report');
 
 const PATHS = resolveProjectPaths(path.resolve(__dirname, '..'));
 const PROJECT_DIR = PATHS.projectDir;
@@ -358,8 +359,6 @@ async function saveModesSequentially(modes, options = {}) {
     : (mode) => saveMode(mode, options);
   const list = Array.isArray(modes) ? modes : [];
   const results = [];
-  let successCount = 0;
-  let failureCount = 0;
 
   for (let index = 0; index < list.length; index += 1) {
     const mode = list[index];
@@ -373,10 +372,8 @@ async function saveModesSequentially(modes, options = {}) {
 
     try {
       const saved = await saveModeFn(mode);
-      successCount += 1;
       results.push(buildSuccessfulSaveSummaryItem(baseResult, saved));
     } catch (error) {
-      failureCount += 1;
       results.push({
         ...baseResult,
         status: 'failed',
@@ -385,12 +382,7 @@ async function saveModesSequentially(modes, options = {}) {
     }
   }
 
-  return {
-    total: list.length,
-    successCount,
-    failureCount,
-    results
-  };
+  return buildTaskSummary(results);
 }
 
 async function runParsedInput(parsed, options = {}) {

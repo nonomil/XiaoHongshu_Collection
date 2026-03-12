@@ -7,6 +7,7 @@ const { parseUserMeResponse } = require('./ai/account_detect');
 const { buildAccountKeyFromDom } = require('./ai/account_dom');
 const { assertValidTask, buildCollectionTask } = require('./lib/task');
 const { runTaskPipeline } = require('./lib/pipeline');
+const { logInfo, logWarn, logError } = require('./lib/logger');
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
 const RAW_PATH = path.join(PROJECT_DIR, 'data', 'raw_notes.json');
@@ -140,7 +141,7 @@ async function collectCollectionData() {
   const wsUrl = await getTabWsUrl();
   const ws = new WebSocket(wsUrl);
   await new Promise(r => ws.on('open', r));
-  console.log('Connected to Chrome');
+  logInfo('Connected to Chrome');
   await send(ws, 'Network.enable');
 
   try {
@@ -168,9 +169,9 @@ async function collectCollectionData() {
         nickname: info.nickname || '',
         accountKey: buildAccountKey({ nickname: info.nickname, uid: info.uid })
       };
-      console.log(`Account: ${account.nickname || '(unknown)'} (${account.uid || 'unknown'}) -> ${account.accountKey}`);
+      logInfo(`Account: ${account.nickname || '(unknown)'} (${account.uid || 'unknown'}) -> ${account.accountKey}`);
     } catch (e) {
-      console.log(`Account detection failed: ${e.message}`);
+      logWarn(`Account detection failed: ${e.message}`);
     }
 
     for (const board of BOARDS) {
@@ -187,7 +188,7 @@ async function collectCollectionData() {
         allResults[board.name] = merged;
         console.log(`Board "${board.name}": ${notes.length} notes`);
       } catch (e) {
-        console.error(`Board "${board.name}" failed: ${e.message}`);
+        logError(`Board "${board.name}" failed: ${e.message}`);
         failed.push({ board: board.name, error: e.message });
       }
     }

@@ -5,6 +5,7 @@ const { spawn } = require('child_process');
 const { saveLinksText } = require('./save_note');
 const { runTaskPipeline } = require('./lib/pipeline');
 const { resolveProjectPaths } = require('./lib/config');
+const { logError, logInfo } = require('./lib/logger');
 const {
   assertValidTask,
   buildCollectionTask,
@@ -255,10 +256,10 @@ if (require.main === module) {
   startUiServer()
     .then((server) => {
       const address = server.address();
-      console.log(`UI server running at http://127.0.0.1:${address.port}`);
+      logInfo(`UI server running at http://127.0.0.1:${address.port}`);
     })
     .catch((error) => {
-      console.error(`UI server failed: ${error.message}`);
+      logError(`UI server failed: ${error.message}`);
       process.exitCode = 1;
     });
 }
