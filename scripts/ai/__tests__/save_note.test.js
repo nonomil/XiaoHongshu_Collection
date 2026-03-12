@@ -95,6 +95,15 @@ test('saveModesSequentially aggregates results without aborting after a failure'
   assert.equal(summary.results[1].status, 'failed');
   assert.match(summary.results[1].error, /mock failure/);
   assert.equal(summary.results[2].status, 'success');
+  assert.deepEqual(Object.keys(summary).sort(), ['failureCount', 'results', 'successCount', 'total']);
+  assert.deepEqual(
+    Object.keys(summary.results[0]).sort(),
+    ['canonicalUrl', 'filepath', 'index', 'input', 'navigationUrl', 'noteId', 'status']
+  );
+  assert.deepEqual(
+    Object.keys(summary.results[1]).sort(),
+    ['canonicalUrl', 'error', 'index', 'input', 'navigationUrl', 'noteId', 'status']
+  );
 });
 
 test('getNavigationUrl prefers original navigation url over canonical url', () => {

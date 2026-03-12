@@ -761,6 +761,28 @@ function normalizeSummaryTags(ai, fallback) {
   return { summary, tags: unique.slice(0, 5) };
 }
 
+function buildSingleNoteExportResult({
+  filepath,
+  commentArchivePath = '',
+  content = '',
+  ocrTexts = [],
+  summary = '',
+  tags = [],
+  commentSummary = '',
+  usefulComments = []
+}) {
+  return {
+    filepath,
+    commentArchivePath,
+    content,
+    ocrTexts,
+    summary,
+    tags,
+    commentSummary,
+    usefulComments
+  };
+}
+
 async function getSummaryTags({ note, content, ocrTexts, config }) {
   const fallback = fallbackSummaryTags({
     title: note.title,
@@ -855,7 +877,16 @@ async function processSingleNoteExport({
     commentError
   });
 
-  return { filepath, commentArchivePath, content, ocrTexts, summary, tags, commentSummary, usefulComments, commentError, config, visionConfig };
+  return buildSingleNoteExportResult({
+    filepath,
+    commentArchivePath,
+    content,
+    ocrTexts,
+    summary,
+    tags,
+    commentSummary,
+    usefulComments
+  });
 }
 
 module.exports = {

@@ -12,6 +12,7 @@ const {
   getPrimaryProjectDir,
   getVisionOcrEndpoint,
   normalizeSummaryTags,
+  processSingleNoteExport,
   renderUsefulComments,
   resolveVisionOcrConfigPath,
   selectUsefulComments,
@@ -264,6 +265,90 @@ test('writeCommentArchive writes raw comments json', () => {
   assert.equal(payload.noteId, 'note123');
   assert.equal(payload.totalComments, 1);
   assert.equal(payload.comments[0].commentId, 'c1');
+});
+
+test('processSingleNoteExport returns a stable result shape when comments exist', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-process-export-'));
+  const imagesRoot = path.join(tempRoot, '_images');
+  const configPath = path.join(tempRoot, 'openrouter.json');
+  const visionConfigPath = path.join(tempRoot, 'vision-ocr.json');
+  fs.writeFileSync(configPath, JSON.stringify({ enabled: false }), 'utf-8');
+  fs.writeFileSync(visionConfigPath, JSON.stringify({ enabled: false }), 'utf-8');
+
+  const result = await processSingleNoteExport({
+    outputRoot: tempRoot,
+    imagesRoot,
+    configPath,
+    visionConfigPath,
+    note: {
+      title: '稳定结构测试',
+      noteId: 'shape123',
+      author: '作者',
+      collection: '单条笔记保存',
+      date: '2026-03-12',
+      tags: ['标签1'],
+      images: [],
+      content: '正文内容',
+      comments: [
+        { commentId: 'c1', author: '评论者', content: '有价值评论', isAuthor: false }
+      ]
+    }
+  });
+
+  assert.deepEqual(
+    Object.keys(result).sort(),
+    ['commentArchivePath', 'commentSummary', 'content', 'filepath', 'ocrTexts', 'summary', 'tags', 'usefulComments']
+  );
+  assert.equal(typeof result.filepath, 'string');
+  assert.equal(result.filepath.endsWith('.md'), true);
+  assert.equal(typeof result.commentArchivePath, 'string');
+  assert.equal(result.commentArchivePath.endsWith('.json'), true);
+  assert.equal(result.content, '正文内容');
+  assert.deepEqual(result.ocrTexts, []);
+  assert.equal(typeof result.summary, 'string');
+  assert.equal(Array.isArray(result.tags), true);
+  assert.equal(Array.isArray(result.usefulComments), true);
+  assert.equal(typeof result.commentSummary, 'string');
+});
+
+test('processSingleNoteExport returns a stable result shape when comments are absent', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-process-export-'));
+  const imagesRoot = path.join(tempRoot, '_images');
+  const configPath = path.join(tempRoot, 'openrouter.json');
+  const visionConfigPath = path.join(tempRoot, 'vision-ocr.json');
+  fs.writeFileSync(configPath, JSON.stringify({ enabled: false }), 'utf-8');
+  fs.writeFileSync(visionConfigPath, JSON.stringify({ enabled: false }), 'utf-8');
+
+  const result = await processSingleNoteExport({
+    outputRoot: tempRoot,
+    imagesRoot,
+    configPath,
+    visionConfigPath,
+    note: {
+      title: '无评论结构测试',
+      noteId: 'shape124',
+      author: '作者',
+      collection: '单条笔记保存',
+      date: '2026-03-12',
+      tags: [],
+      images: [],
+      content: '正文内容',
+      comments: []
+    }
+  });
+
+  assert.deepEqual(
+    Object.keys(result).sort(),
+    ['commentArchivePath', 'commentSummary', 'content', 'filepath', 'ocrTexts', 'summary', 'tags', 'usefulComments']
+  );
+  assert.equal(typeof result.filepath, 'string');
+  assert.equal(result.commentArchivePath, '');
+  assert.equal(result.content, '正文内容');
+  assert.deepEqual(result.ocrTexts, []);
+  assert.equal(typeof result.summary, 'string');
+  assert.equal(Array.isArray(result.tags), true);
+  assert.equal(Array.isArray(result.usefulComments), true);
+  assert.equal(typeof result.commentSummary, 'string');
 });
 
 test('resolveVisionOcrConfigPath prefers the real config file', () => {

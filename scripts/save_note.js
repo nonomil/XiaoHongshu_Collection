@@ -305,6 +305,14 @@ async function saveMode(mode, options = {}) {
   return { note, result, mode };
 }
 
+function buildSuccessfulSaveSummaryItem(baseResult, saved) {
+  return {
+    ...baseResult,
+    status: 'success',
+    filepath: saved?.result?.filepath || saved?.filepath || ''
+  };
+}
+
 async function saveModesSequentially(modes, options = {}) {
   const saveModeFn = options.saveMode
     ? (mode) => options.saveMode(mode, options)
@@ -327,13 +335,7 @@ async function saveModesSequentially(modes, options = {}) {
     try {
       const saved = await saveModeFn(mode);
       successCount += 1;
-      results.push({
-        ...baseResult,
-        status: 'success',
-        filepath: saved?.result?.filepath || saved?.filepath || '',
-        note: saved?.note,
-        result: saved?.result
-      });
+      results.push(buildSuccessfulSaveSummaryItem(baseResult, saved));
     } catch (error) {
       failureCount += 1;
       results.push({
@@ -404,6 +406,7 @@ if (require.main === module) {
 module.exports = {
   buildChromeLaunchArgs,
   buildChromeDebugHelp,
+  buildSuccessfulSaveSummaryItem,
   canAutoLaunchChrome: shouldAutoLaunchChrome,
   findChromeExecutable,
   formatSaveNoteError,
