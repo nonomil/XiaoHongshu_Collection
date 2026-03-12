@@ -14,6 +14,7 @@ const {
 } = require('./lib/cdp_note');
 const { normalizeNoteInput, normalizeNoteInputs } = require('./lib/note_input');
 const { processSingleNoteExport } = require('./lib/note_export');
+const { runTaskPipeline } = require('./lib/pipeline');
 const {
   assertValidTask,
   buildNoteSaveTask,
@@ -334,15 +335,35 @@ async function fetchNoteWithFallback(mode) {
 async function saveMode(mode, options = {}) {
   const fetchNote = options.fetchNote || fetchNoteWithFallback;
   const exportNote = options.exportNote || processSingleNoteExport;
-  const note = await fetchNote(mode);
-  const result = await exportNote({
-    outputRoot: options.outputRoot || OUTPUT_DIR,
-    imagesRoot: options.imagesRoot || IMG_DIR,
-    note,
-    configPath: options.configPath || CONFIG_PATH
+  const task = options.task || buildNoteSaveTask({
+    input: mode.input || getNavigationUrl(mode),
+    source: options.source || 'cli',
+    mode: mode.mode === 'current' ? 'current' : undefined
   });
 
-  return { note, result, mode };
+  const pipeline = await runTaskPipeline({
+    task,
+    fetchFn: async () => fetchNote(mode),
+    enrichFn: async (note) => note,
+    writeFn: async (note) => exportNote({
+      outputRoot: options.outputRoot || OUTPUT_DIR,
+      imagesRoot: options.imagesRoot || IMG_DIR,
+      note,
+      configPath: options.configPath || CONFIG_PATH
+    }),
+    reportFn: async (payload) => ({
+      note: payload.steps.fetch?.data,
+      result: payload.steps.write?.data,
+      mode,
+      task
+    })
+  });
+
+  if (!pipeline.ok) {
+    throw pipeline.error || new Error('Save note pipeline failed');
+  }
+
+  return pipeline.report;
 }
 
 function buildSuccessfulSaveSummaryItem(baseResult, saved) {

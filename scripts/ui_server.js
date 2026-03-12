@@ -3,6 +3,7 @@ const http = require('http');
 const path = require('path');
 const { spawn } = require('child_process');
 const { saveLinksText } = require('./save_note');
+const { runTaskPipeline } = require('./lib/pipeline');
 const {
   assertValidTask,
   buildCollectionTask,
@@ -129,16 +130,32 @@ async function runCollectionExport(task) {
   if (task) {
     assertValidTask(task);
   }
-  const steps = [];
-  const logs = [];
+  const pipeline = await runTaskPipeline({
+    task: task || buildCollectionTask({ source: 'ui' }),
+    fetchFn: async () => runNodeScript('scripts/extract_v4.js'),
+    enrichFn: async (payload) => payload,
+    writeFn: async () => runNodeScript('scripts/ocr_and_write.js'),
+    reportFn: async (payload) => {
+      const fetchResult = payload.steps.fetch?.data;
+      const writeResult = payload.steps.write?.data;
+      return {
+        steps: [
+          fetchResult ? { script: fetchResult.script, code: fetchResult.code } : null,
+          writeResult ? { script: writeResult.script, code: writeResult.code } : null
+        ].filter(Boolean),
+        logs: [
+          ...(fetchResult?.logs || []),
+          ...(writeResult?.logs || [])
+        ]
+      };
+    }
+  });
 
-  for (const script of ['scripts/extract_v4.js', 'scripts/ocr_and_write.js']) {
-    const result = await runNodeScript(script);
-    steps.push({ script: result.script, code: result.code });
-    logs.push(...result.logs);
+  if (!pipeline.ok) {
+    throw pipeline.error || new Error('Collection export failed');
   }
 
-  return { steps, logs };
+  return pipeline.report;
 }
 
 function createUiServer({

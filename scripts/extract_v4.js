@@ -6,6 +6,7 @@ const { buildAccountKey } = require('./ai/account');
 const { parseUserMeResponse } = require('./ai/account_detect');
 const { buildAccountKeyFromDom } = require('./ai/account_dom');
 const { assertValidTask, buildCollectionTask } = require('./lib/task');
+const { runTaskPipeline } = require('./lib/pipeline');
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
 const RAW_PATH = path.join(PROJECT_DIR, 'data', 'raw_notes.json');
@@ -133,6 +134,84 @@ function buildExistingIdSet(boards) {
     }
   }
   return set;
+}
+
+async function collectCollectionData() {
+  const wsUrl = await getTabWsUrl();
+  const ws = new WebSocket(wsUrl);
+  await new Promise(r => ws.on('open', r));
+  console.log('Connected to Chrome');
+  await send(ws, 'Network.enable');
+
+  try {
+    const existing = loadExistingNotes();
+    const allResults = existing.boards || {};
+    const failed = existing.failed || [];
+    const existingNoteIds = buildExistingIdSet(allResults);
+
+    let account = { uid: '', nickname: '', accountKey: 'unknown_000000' };
+    setupNetworkAccountCapture(ws, account);
+    try {
+      const domInfo = await getAccountInfoFromDom(ws);
+      if (domInfo.nickname || domInfo.uid) {
+        account.uid = domInfo.uid || account.uid;
+        account.nickname = domInfo.nickname || account.nickname;
+        account.accountKey = buildAccountKeyFromDom(domInfo);
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      const info = await getAccountInfo(ws);
+      account = {
+        uid: info.uid || '',
+        nickname: info.nickname || '',
+        accountKey: buildAccountKey({ nickname: info.nickname, uid: info.uid })
+      };
+      console.log(`Account: ${account.nickname || '(unknown)'} (${account.uid || 'unknown'}) -> ${account.accountKey}`);
+    } catch (e) {
+      console.log(`Account detection failed: ${e.message}`);
+    }
+
+    for (const board of BOARDS) {
+      try {
+        const notes = await processBoard(ws, board, existingNoteIds, account);
+        const current = allResults[board.name] || [];
+        const merged = [...current];
+        for (const note of notes) {
+          if (note && note.noteId && !existingNoteIds.has(note.noteId)) {
+            merged.push(note);
+            existingNoteIds.add(note.noteId);
+          }
+        }
+        allResults[board.name] = merged;
+        console.log(`Board "${board.name}": ${notes.length} notes`);
+      } catch (e) {
+        console.error(`Board "${board.name}" failed: ${e.message}`);
+        failed.push({ board: board.name, error: e.message });
+      }
+    }
+
+    return { boards: allResults, failed };
+  } finally {
+    ws.close();
+  }
+}
+
+function persistCollectionData(payload) {
+  const boards = payload?.boards || {};
+  const failed = payload?.failed || [];
+  fs.writeFileSync(RAW_PATH, JSON.stringify({ boards, failed }, null, 2), 'utf-8');
+  console.log(`\nSaved to ${RAW_PATH}`);
+
+  let total = 0;
+  for (const [name, notes] of Object.entries(boards)) {
+    console.log(`  ${name}: ${notes.length} notes`);
+    total += notes.length;
+  }
+  console.log(`Total: ${total} notes, ${failed.length} failures`);
+
+  return { rawPath: RAW_PATH, total, failures: failed.length };
 }
 
 async function clickAtPosition(ws, x, y) {
@@ -455,70 +534,24 @@ async function processBoard(ws, board, existingNoteIds, account) {
 
 async function main(task = buildCollectionTask({ source: 'cli' })) {
   assertValidTask(task);
-  const wsUrl = await getTabWsUrl();
-  const ws = new WebSocket(wsUrl);
-  await new Promise(r => ws.on('open', r));
-  console.log('Connected to Chrome');
-  await send(ws, 'Network.enable');
 
-  const existing = loadExistingNotes();
-  const allResults = existing.boards || {};
-  const failed = existing.failed || [];
-  const existingNoteIds = buildExistingIdSet(allResults);
+  const pipeline = await runTaskPipeline({
+    task,
+    fetchFn: collectCollectionData,
+    enrichFn: async (payload) => payload,
+    writeFn: persistCollectionData,
+    reportFn: async (payload) => ({
+      task: payload.task,
+      result: payload.steps.write?.data,
+      warnings: payload.warnings
+    })
+  });
 
-  let account = { uid: '', nickname: '', accountKey: 'unknown_000000' };
-  setupNetworkAccountCapture(ws, account);
-  try {
-    const domInfo = await getAccountInfoFromDom(ws);
-    if (domInfo.nickname || domInfo.uid) {
-      account.uid = domInfo.uid || account.uid;
-      account.nickname = domInfo.nickname || account.nickname;
-      account.accountKey = buildAccountKeyFromDom(domInfo);
-    }
-  } catch {
-    // ignore
-  }
-  try {
-    const info = await getAccountInfo(ws);
-    account = {
-      uid: info.uid || '',
-      nickname: info.nickname || '',
-      accountKey: buildAccountKey({ nickname: info.nickname, uid: info.uid })
-    };
-    console.log(`Account: ${account.nickname || '(unknown)'} (${account.uid || 'unknown'}) -> ${account.accountKey}`);
-  } catch (e) {
-    console.log(`Account detection failed: ${e.message}`);
+  if (!pipeline.ok) {
+    throw pipeline.error || new Error('Collection export failed');
   }
 
-  for (const board of BOARDS) {
-    try {
-      const notes = await processBoard(ws, board, existingNoteIds, account);
-      const current = allResults[board.name] || [];
-      const merged = [...current];
-      for (const note of notes) {
-        if (note && note.noteId && !existingNoteIds.has(note.noteId)) {
-          merged.push(note);
-          existingNoteIds.add(note.noteId);
-        }
-      }
-      allResults[board.name] = merged;
-      console.log(`Board "${board.name}": ${notes.length} notes`);
-    } catch (e) {
-      console.error(`Board "${board.name}" failed: ${e.message}`);
-      failed.push({ board: board.name, error: e.message });
-    }
-  }
-
-  fs.writeFileSync(RAW_PATH, JSON.stringify({ boards: allResults, failed }, null, 2), 'utf-8');
-  console.log(`\nSaved to ${RAW_PATH}`);
-
-  let total = 0;
-  for (const [name, notes] of Object.entries(allResults)) {
-    console.log(`  ${name}: ${notes.length} notes`);
-    total += notes.length;
-  }
-  console.log(`Total: ${total} notes, ${failed.length} failures`);
-  ws.close();
+  return pipeline.report;
 }
 
 main().catch(e => console.error('Fatal error:', e.message));
