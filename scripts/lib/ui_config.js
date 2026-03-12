@@ -1,7 +1,7 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 const path = require('path');
 
-const DEFAULTS = {
+const DEFAULT_UI_CONFIG = {
   paths: {
     saveLinksOutputRoot: '',
     saveLinksImagesRoot: '',
@@ -25,12 +25,22 @@ const DEFAULTS = {
   }
 };
 
-function mergeUiConfig(base, override) {
-  const merged = JSON.parse(JSON.stringify(base || DEFAULTS));
-  if (!override || typeof override !== 'object') return merged;
+function cloneDefaults() {
+  return JSON.parse(JSON.stringify(DEFAULT_UI_CONFIG));
+}
 
-  for (const section of Object.keys(DEFAULTS)) {
-    merged[section] = { ...merged[section], ...(override[section] || {}) };
+function mergeUiConfig(base, override) {
+  const merged = cloneDefaults();
+  const sources = [base, override];
+
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    for (const section of Object.keys(DEFAULT_UI_CONFIG)) {
+      const value = source[section];
+      if (value && typeof value === 'object') {
+        merged[section] = { ...merged[section], ...value };
+      }
+    }
   }
 
   return merged;
@@ -38,25 +48,29 @@ function mergeUiConfig(base, override) {
 
 function loadUiConfig({ configPath }) {
   if (!configPath || !fs.existsSync(configPath)) {
-    return { ...DEFAULTS, _missing: true };
+    return { ...cloneDefaults(), _missing: true };
   }
 
   try {
-    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    return mergeUiConfig(DEFAULTS, parsed);
+    const rawText = fs.readFileSync(configPath, 'utf-8');
+    const parsed = JSON.parse(rawText);
+    return mergeUiConfig(DEFAULT_UI_CONFIG, parsed);
   } catch (error) {
-    return { ...DEFAULTS, _invalid: true, error };
+    return { ...cloneDefaults(), _invalid: true, error };
   }
 }
 
 function saveUiConfig({ configPath, payload }) {
+  if (!configPath) {
+    throw new Error('configPath is required');
+  }
   const dir = path.dirname(configPath);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(configPath, JSON.stringify(payload, null, 2), 'utf-8');
 }
 
 module.exports = {
-  DEFAULTS,
+  DEFAULT_UI_CONFIG,
   loadUiConfig,
   mergeUiConfig,
   saveUiConfig
