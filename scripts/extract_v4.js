@@ -5,12 +5,13 @@ const path = require('path');
 const { buildAccountKey } = require('./ai/account');
 const { parseUserMeResponse } = require('./ai/account_detect');
 const { buildAccountKeyFromDom } = require('./ai/account_dom');
+const { resolveCollectionRawPath } = require('./lib/collection_paths');
 const { assertValidTask, buildCollectionTask } = require('./lib/task');
 const { runTaskPipeline } = require('./lib/pipeline');
 const { logInfo, logWarn, logError } = require('./lib/logger');
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
-const RAW_PATH = path.join(PROJECT_DIR, 'data', 'raw_notes.json');
+const RAW_PATH = resolveCollectionRawPath({ projectDir: PROJECT_DIR });
 
 const BOARDS = [
   { name: 'AI', href: 'https://www.xiaohongshu.com/board/699c2c9c0000000025031008' },

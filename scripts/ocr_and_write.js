@@ -8,12 +8,13 @@ const { buildAccountKey, buildOutputDirs } = require('./ai/account');
 const { applyOcrRules, computeOcrAnomalyScore, shouldAiCorrect } = require('./ai/ocr_postcorrect');
 const { cleanTags } = require('./ai/tag_clean');
 const { resolveTessdataPrefix } = require('./ai/tesseract_path');
+const { resolveCollectionOutputRoot, resolveCollectionRawPath } = require('./lib/collection_paths');
 const { loadOpenRouterConfig, resolveProjectPaths } = require('./lib/config');
 
 const PATHS = resolveProjectPaths(path.resolve(__dirname, '..'));
 const PROJECT_DIR = PATHS.projectDir;
-const OUTPUT_ROOT = PATHS.outputDir;
-const RAW_PATH = path.join(PATHS.dataDir, 'raw_notes.json');
+const OUTPUT_ROOT = resolveCollectionOutputRoot({ projectDir: PROJECT_DIR, outputDir: PATHS.outputDir });
+const RAW_PATH = resolveCollectionRawPath({ projectDir: PROJECT_DIR, dataDir: PATHS.dataDir });
 const TESSDATA_PATH = path.join(PROJECT_DIR, 'assets', 'tesseract');
 if (!process.env.TESSDATA_PREFIX || !String(process.env.TESSDATA_PREFIX).trim()) {
   process.env.TESSDATA_PREFIX = resolveTessdataPrefix('');
