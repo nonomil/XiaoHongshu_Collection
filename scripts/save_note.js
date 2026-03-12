@@ -328,7 +328,10 @@ async function saveMode(mode, options = {}) {
       outputRoot: options.outputRoot || OUTPUT_DIR,
       imagesRoot: options.imagesRoot || IMG_DIR,
       note,
-      configPath: options.configPath || CONFIG_PATH
+      configPath: options.configPath || CONFIG_PATH,
+      visionConfigPath: options.visionConfigPath,
+      conflictStrategy: options.conflictStrategy,
+      maxTitleLength: options.maxTitleLength
     }),
     reportFn: async (payload) => ({
       note: payload.steps.fetch?.data,

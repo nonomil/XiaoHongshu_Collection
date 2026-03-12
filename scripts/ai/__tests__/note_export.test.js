@@ -1,4 +1,4 @@
-const { test } = require('node:test');
+﻿const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -251,6 +251,41 @@ test('writeSingleNoteMarkdown overwrites the same path for the same note', () =>
   assert.equal(fs.readFileSync(secondPath, 'utf-8').includes('第二次'), true);
 });
 
+
+test('writeSingleNoteMarkdown adds suffix when content differs with content-aware strategy', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-note-export-'));
+  const note = {
+    title: 'Conflict Strategy',
+    noteId: 'conflict123',
+    author: 'Author',
+    collection: 'Single',
+    date: '2026-03-08',
+    tags: [],
+    images: []
+  };
+
+  const firstPath = writeSingleNoteMarkdown({
+    outputRoot: tempRoot,
+    note,
+    content: 'Body A',
+    ocrTexts: [],
+    summary: 'Summary',
+    tags: ['Tag1', 'Tag2', 'Tag3'],
+    conflictStrategy: 'content-aware'
+  });
+  const secondPath = writeSingleNoteMarkdown({
+    outputRoot: tempRoot,
+    note,
+    content: 'Body B',
+    ocrTexts: [],
+    summary: 'Summary',
+    tags: ['Tag1', 'Tag2', 'Tag3'],
+    conflictStrategy: 'content-aware'
+  });
+
+  assert.notEqual(firstPath, secondPath);
+  assert.match(secondPath, /-1\.md$/);
+});
 test('writeSingleNoteMarkdown writes UTF-8 BOM for Windows-compatible markdown display', () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-note-export-'));
   const note = {
@@ -413,3 +448,4 @@ test('shouldUseVisionOcr requires enabled config with credentials', () => {
   assert.equal(shouldUseVisionOcr({ enabled: false, baseUrl: 'https://example.com/v1', apiKey: 'sk-test', model: 'gpt-test' }), false);
   assert.equal(shouldUseVisionOcr({ enabled: true, baseUrl: '', apiKey: 'sk-test', model: 'gpt-test' }), false);
 });
+

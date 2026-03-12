@@ -7,14 +7,15 @@ const { buildAiInput, parseAiResponse, fallbackSummaryTags } = require('../ai/su
 const { cleanTags } = require('../ai/tag_clean');
 const { loadOpenRouterConfig, loadVisionOcrConfig } = require('./config');
 const { runOcrWithProvider, shouldUseVisionOcr } = require('./ocr_provider');
+const { resolveMarkdownConflict } = require('./output_naming');
 const { getSummaryTagsWithProvider, normalizeSummaryTags, shouldUseAiSummary } = require('./summary_provider');
 
-function sanitizeFilename(name) {
+function sanitizeFilename(name, maxLength = 80) {
   return String(name || '')
     .replace(/[\\/:*?"<>|]/g, '_')
     .replace(/\s+/g, ' ')
     .trim()
-    .substring(0, 80);
+    .substring(0, maxLength);
 }
 
 function cleanAuthor(author) {
@@ -49,9 +50,9 @@ function cleanDate(dateStr) {
   return value;
 }
 
-function buildNotePaths({ outputRoot, collection, title, noteId }) {
+function buildNotePaths({ outputRoot, collection, title, noteId, maxTitleLength }) {
   const boardDir = path.join(outputRoot, collection);
-  const safeName = sanitizeFilename(title || `note_${noteId}`) || `note_${noteId}`;
+  const safeName = sanitizeFilename(title || `note_${noteId}`, maxTitleLength) || `note_${noteId}`;
   const filepath = path.join(boardDir, `${safeName}.md`);
   return { boardDir, filepath };
 }
@@ -360,12 +361,25 @@ function generateMarkdown({ note, content, ocrTexts, summary, tags, commentSumma
   return md;
 }
 
-function writeSingleNoteMarkdown({ outputRoot, note, content, ocrTexts, summary, tags, commentSummary, usefulComments, commentError }) {
+function writeSingleNoteMarkdown({
+  outputRoot,
+  note,
+  content,
+  ocrTexts,
+  summary,
+  tags,
+  commentSummary,
+  usefulComments,
+  commentError,
+  conflictStrategy,
+  maxTitleLength
+}) {
   const { boardDir, filepath } = buildNotePaths({
     outputRoot,
     collection: note.collection,
     title: note.title,
-    noteId: note.noteId
+    noteId: note.noteId,
+    maxTitleLength
   });
 
   fs.mkdirSync(boardDir, { recursive: true });
@@ -379,8 +393,11 @@ function writeSingleNoteMarkdown({ outputRoot, note, content, ocrTexts, summary,
     usefulComments,
     commentError
   });
-  fs.writeFileSync(filepath, `\uFEFF${markdown}`, 'utf-8');
-  return filepath;
+  const targetPath = conflictStrategy === 'content-aware'
+    ? resolveMarkdownConflict({ filepath, nextMarkdown: markdown })
+    : filepath;
+  fs.writeFileSync(targetPath, `\uFEFF${markdown}`, 'utf-8');
+  return targetPath;
 }
 
 function getVisionOcrEndpoint(config) {
@@ -747,7 +764,9 @@ async function processSingleNoteExport({
   imagesRoot,
   note,
   configPath,
-  visionConfigPath
+  visionConfigPath,
+  conflictStrategy,
+  maxTitleLength
 }) {
   const projectDir = path.dirname(outputRoot);
   const config = loadOpenRouterConfig({ projectDir, configPath });
@@ -789,7 +808,9 @@ async function processSingleNoteExport({
     tags,
     commentSummary,
     usefulComments,
-    commentError
+    commentError,
+    conflictStrategy,
+    maxTitleLength
   });
 
   return buildSingleNoteExportResult({

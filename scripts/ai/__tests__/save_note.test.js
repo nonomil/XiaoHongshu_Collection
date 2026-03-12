@@ -9,6 +9,7 @@ const {
   parseArgs,
   resolveRunModes,
   resolveRunMode,
+  saveLinksText,
   saveModesSequentially,
   shouldAutoLaunchChrome
 } = require('../../save_note');
@@ -104,6 +105,40 @@ test('saveModesSequentially aggregates results without aborting after a failure'
     Object.keys(summary.results[1]).sort(),
     ['canonicalUrl', 'error', 'index', 'input', 'navigationUrl', 'noteId', 'status']
   );
+});
+
+test('saveLinksText passes ui overrides to exportNote', async () => {
+  let captured;
+  await saveLinksText('https://www.xiaohongshu.com/explore/abc123', {
+    fetchNote: async () => ({
+      title: 'Title',
+      noteId: 'abc123',
+      author: 'Author',
+      collection: 'Single',
+      date: '2026-03-08',
+      tags: [],
+      images: [],
+      content: 'Body',
+      comments: []
+    }),
+    exportNote: async (payload) => {
+      captured = payload;
+      return { filepath: 'G:/output/abc123.md' };
+    },
+    outputRoot: 'G:/output',
+    imagesRoot: 'G:/images',
+    configPath: 'G:/config/openrouter.json',
+    visionConfigPath: 'G:/config/vision-ocr.json',
+    conflictStrategy: 'content-aware',
+    maxTitleLength: 40
+  });
+
+  assert.equal(captured.outputRoot, 'G:/output');
+  assert.equal(captured.imagesRoot, 'G:/images');
+  assert.equal(captured.configPath, 'G:/config/openrouter.json');
+  assert.equal(captured.visionConfigPath, 'G:/config/vision-ocr.json');
+  assert.equal(captured.conflictStrategy, 'content-aware');
+  assert.equal(captured.maxTitleLength, 40);
 });
 
 test('getNavigationUrl prefers original navigation url over canonical url', () => {
