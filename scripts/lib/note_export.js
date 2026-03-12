@@ -5,6 +5,7 @@ const path = require('path');
 const { createWorker } = require('tesseract.js');
 const { buildAiInput, parseAiResponse, fallbackSummaryTags } = require('../ai/summary');
 const { cleanTags } = require('../ai/tag_clean');
+const { loadOpenRouterConfig, loadVisionOcrConfig } = require('./config');
 
 function sanitizeFilename(name) {
   return String(name || '')
@@ -357,46 +358,6 @@ function writeSingleNoteMarkdown({ outputRoot, note, content, ocrTexts, summary,
   });
   fs.writeFileSync(filepath, `\uFEFF${markdown}`, 'utf-8');
   return filepath;
-}
-
-function loadConfig(configPath) {
-  if (!configPath || !fs.existsSync(configPath)) {
-    return { _missing: true };
-  }
-
-  try {
-    return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-  } catch (error) {
-    return { _invalid: true, error };
-  }
-}
-
-function getPrimaryProjectDir(projectDir) {
-  const normalized = path.resolve(projectDir);
-  const marker = `${path.sep}.worktrees${path.sep}`;
-  const markerIndex = normalized.indexOf(marker);
-  if (markerIndex === -1) return normalized;
-  return normalized.slice(0, markerIndex);
-}
-
-function resolveVisionOcrConfigPath(projectDir) {
-  const searchRoots = [path.resolve(projectDir)];
-  const primaryDir = getPrimaryProjectDir(projectDir);
-  if (!searchRoots.includes(primaryDir)) {
-    searchRoots.push(primaryDir);
-  }
-
-  for (const root of searchRoots) {
-    const realPath = path.join(root, 'config', 'vision-ocr.json');
-    if (fs.existsSync(realPath)) return realPath;
-  }
-
-  for (const root of searchRoots) {
-    const examplePath = path.join(root, 'config', 'vision-ocr.example.json');
-    if (fs.existsSync(examplePath)) return examplePath;
-  }
-
-  return '';
 }
 
 function shouldUseVisionOcr(config) {
@@ -820,9 +781,8 @@ async function processSingleNoteExport({
   visionConfigPath
 }) {
   const projectDir = path.dirname(outputRoot);
-  const config = loadConfig(configPath);
-  const resolvedVisionPath = visionConfigPath || resolveVisionOcrConfigPath(projectDir);
-  const visionConfig = loadConfig(resolvedVisionPath);
+  const config = loadOpenRouterConfig({ projectDir, configPath });
+  const visionConfig = loadVisionOcrConfig({ projectDir, configPath: visionConfigPath });
   const content = cleanContent(note.content, note.title);
   let ocrTexts = [];
 
@@ -899,17 +859,14 @@ module.exports = {
   downloadImage,
   generateMarkdown,
   getUsefulComments,
-  getPrimaryProjectDir,
   getVisionOcrEndpoint,
   getSummaryTags,
-  loadConfig,
   normalizeCommentText,
   normalizeSummaryTags,
   ocrImages,
   ocrImagesWithVision,
   processSingleNoteExport,
   renderUsefulComments,
-  resolveVisionOcrConfigPath,
   sanitizeFilename,
   selectUsefulComments,
   sleep,

@@ -20,14 +20,16 @@ const {
   buildNoteSaveTask,
   normalizeTaskInput
 } = require('./lib/task');
+const { resolveProjectPaths } = require('./lib/config');
 
-const PROJECT_DIR = path.resolve(__dirname, '..');
-const OUTPUT_DIR = path.join(PROJECT_DIR, 'output');
+const PATHS = resolveProjectPaths(path.resolve(__dirname, '..'));
+const PROJECT_DIR = PATHS.projectDir;
+const OUTPUT_DIR = PATHS.outputDir;
 const IMG_DIR = path.join(OUTPUT_DIR, '_images');
-const CONFIG_PATH = path.join(PROJECT_DIR, 'config', 'openrouter.json');
+const CONFIG_PATH = path.join(PATHS.configDir, 'openrouter.json');
 const CHROME_DEBUG_PORT = 9222;
 const CHROME_DEBUG_URL = 'http://localhost:9222/json';
-const AUTO_LAUNCH_PROFILE_DIR = path.join(PROJECT_DIR, '.cache', 'chrome-debug');
+const AUTO_LAUNCH_PROFILE_DIR = path.join(PATHS.cacheDir, 'chrome-debug');
 
 function parseArgs(argv) {
   const args = argv.filter(Boolean);

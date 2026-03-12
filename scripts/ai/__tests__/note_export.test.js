@@ -9,12 +9,10 @@ const {
   buildNotePaths,
   generateMarkdown,
   getUsefulComments,
-  getPrimaryProjectDir,
   getVisionOcrEndpoint,
   normalizeSummaryTags,
   processSingleNoteExport,
   renderUsefulComments,
-  resolveVisionOcrConfigPath,
   selectUsefulComments,
   stripVisionOcrWrapper,
   shouldUseVisionOcr,
@@ -349,39 +347,6 @@ test('processSingleNoteExport returns a stable result shape when comments are ab
   assert.equal(Array.isArray(result.tags), true);
   assert.equal(Array.isArray(result.usefulComments), true);
   assert.equal(typeof result.commentSummary, 'string');
-});
-
-test('resolveVisionOcrConfigPath prefers the real config file', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-vision-config-'));
-  const configDir = path.join(tempRoot, 'config');
-  fs.mkdirSync(configDir, { recursive: true });
-  const realPath = path.join(configDir, 'vision-ocr.json');
-  const examplePath = path.join(configDir, 'vision-ocr.example.json');
-  fs.writeFileSync(realPath, '{}', 'utf-8');
-  fs.writeFileSync(examplePath, '{}', 'utf-8');
-
-  assert.equal(resolveVisionOcrConfigPath(tempRoot), realPath);
-});
-
-test('resolveVisionOcrConfigPath falls back to example config', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-vision-config-'));
-  const configDir = path.join(tempRoot, 'config');
-  fs.mkdirSync(configDir, { recursive: true });
-  const examplePath = path.join(configDir, 'vision-ocr.example.json');
-  fs.writeFileSync(examplePath, '{}', 'utf-8');
-
-  assert.equal(resolveVisionOcrConfigPath(tempRoot), examplePath);
-});
-
-test('getPrimaryProjectDir maps worktree path back to main project dir', () => {
-  assert.equal(
-    getPrimaryProjectDir('G:\\UserCode\\XiaoHongshu_Collection\\.worktrees\\codex-single-note-save'),
-    'G:\\UserCode\\XiaoHongshu_Collection'
-  );
-  assert.equal(
-    getPrimaryProjectDir('G:\\UserCode\\XiaoHongshu_Collection'),
-    'G:\\UserCode\\XiaoHongshu_Collection'
-  );
 });
 
 test('getVisionOcrEndpoint uses responses api for openai-compatible provider', () => {

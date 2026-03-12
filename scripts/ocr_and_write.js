@@ -8,36 +8,23 @@ const { buildAccountKey, buildOutputDirs } = require('./ai/account');
 const { applyOcrRules, computeOcrAnomalyScore, shouldAiCorrect } = require('./ai/ocr_postcorrect');
 const { cleanTags } = require('./ai/tag_clean');
 const { resolveTessdataPrefix } = require('./ai/tesseract_path');
+const { loadOpenRouterConfig, resolveProjectPaths } = require('./lib/config');
 
-const PROJECT_DIR = path.resolve(__dirname, '..');
-const OUTPUT_ROOT = path.join(PROJECT_DIR, 'output');
-const RAW_PATH = path.join(PROJECT_DIR, 'data', 'raw_notes.json');
+const PATHS = resolveProjectPaths(path.resolve(__dirname, '..'));
+const PROJECT_DIR = PATHS.projectDir;
+const OUTPUT_ROOT = PATHS.outputDir;
+const RAW_PATH = path.join(PATHS.dataDir, 'raw_notes.json');
 const TESSDATA_PATH = path.join(PROJECT_DIR, 'assets', 'tesseract');
 if (!process.env.TESSDATA_PREFIX || !String(process.env.TESSDATA_PREFIX).trim()) {
   process.env.TESSDATA_PREFIX = resolveTessdataPrefix('');
 }
 
-const CONFIG_PATH = path.join(PROJECT_DIR, 'config', 'openrouter.json');
-
-function loadConfig() {
-  if (!fs.existsSync(CONFIG_PATH)) {
-    return { _missing: true };
-  }
-  try {
-    const rawText = fs.readFileSync(CONFIG_PATH, 'utf-8');
-    return JSON.parse(rawText);
-  } catch (e) {
-    console.error(`Config parse error: ${e.message}`);
-    return { _invalid: true };
-  }
-}
-
-const CONFIG = loadConfig();
+const CONFIG = loadOpenRouterConfig({ projectDir: PROJECT_DIR });
 const OPENROUTER_API_KEY = CONFIG.apiKey || '';
 const OPENROUTER_MODEL = CONFIG.model || 'openrouter/free';
 const OPENROUTER_BASE_URL = CONFIG.baseUrl || 'https://openrouter.ai/api/v1';
 const OPENROUTER_TIMEOUT_MS = Number(CONFIG.timeoutMs || 30000);
-const AI_ENABLED = CONFIG.enabled !== false && !!OPENROUTER_API_KEY;
+const AI_ENABLED = !CONFIG._missing && !CONFIG._invalid && CONFIG.enabled !== false && !!OPENROUTER_API_KEY;
 const OCR_POST_CORRECT = CONFIG.ocrPostCorrect !== false;
 const OCR_POST_CORRECT_THRESHOLD = Number(CONFIG.ocrPostCorrectThreshold || 0.55);
 const OCR_POST_CORRECT_MAX_CHARS = Number(CONFIG.ocrPostCorrectMaxChars || 1200);

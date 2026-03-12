@@ -4,13 +4,15 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { saveLinksText } = require('./save_note');
 const { runTaskPipeline } = require('./lib/pipeline');
+const { resolveProjectPaths } = require('./lib/config');
 const {
   assertValidTask,
   buildCollectionTask,
   buildNoteSaveTask
 } = require('./lib/task');
 
-const PROJECT_DIR = path.resolve(__dirname, '..');
+const PATHS = resolveProjectPaths(path.resolve(__dirname, '..'));
+const PROJECT_DIR = PATHS.projectDir;
 const UI_DIR = path.join(PROJECT_DIR, 'ui');
 const DEFAULT_PORT = Number(process.env.XHS_UI_PORT || 3030);
 
