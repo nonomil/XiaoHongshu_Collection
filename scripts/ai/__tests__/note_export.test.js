@@ -169,6 +169,35 @@ test('selectUsefulComments filters obvious noise comments with heuristic fallbac
   assert.equal(useful.some((item) => item.commentId === '4'), false);
 });
 
+test('selectUsefulComments keeps short author replies', () => {
+  const comments = [
+    { commentId: '1', author: '作者', content: '收到', likeCount: 0, isAuthor: true },
+    { commentId: '2', author: '路人', content: '好看', likeCount: 0, isAuthor: false }
+  ];
+
+  const useful = selectUsefulComments({ comments, config: { _missing: true } });
+  assert.equal(useful.some((item) => item.commentId === '1'), true);
+});
+
+test('selectUsefulComments keeps some low-value but non-noise comments', () => {
+  const comments = [
+    { commentId: '1', author: 'A', content: '内容一般般，但路过看看。', likeCount: 0, isAuthor: false },
+    { commentId: '2', author: 'B', content: '感觉还行，先收藏。', likeCount: 0, isAuthor: false }
+  ];
+
+  const useful = selectUsefulComments({ comments, config: { _missing: true } });
+  assert.equal(useful.length > 0, true);
+});
+
+test('renderUsefulComments orders replies after root comments', () => {
+  const section = renderUsefulComments([
+    { commentId: 'c2', rootId: 'c1', parentId: 'c1', level: 1, content: '回复在前' },
+    { commentId: 'c1', rootId: 'c1', parentId: '', level: 0, content: '主评论' }
+  ]);
+
+  assert.match(section, /\| 评论 1 \| 主评论<br>↳ 回复在前 \|/);
+});
+
 test('getUsefulComments applies AI second-pass filtering when available', async () => {
   const comments = [
     { commentId: '2', author: 'B', content: '给网址让 gemini 自己分析再复刻会更稳。', likeCount: 3, isAuthor: false },

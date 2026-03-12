@@ -80,6 +80,7 @@ function renderUsefulComments(usefulComments) {
 
   const threads = [];
   const threadMap = new Map();
+  let itemIndex = 0;
 
   for (const comment of usefulComments) {
     const content = normalizeCommentText(comment.content);
@@ -93,14 +94,19 @@ function renderUsefulComments(usefulComments) {
     );
 
     if (!threadMap.has(threadKey)) {
-      const thread = { lines: [] };
+      const thread = { items: [] };
       threadMap.set(threadKey, thread);
       threads.push(thread);
     }
 
-    const prefix = Number(comment.level || 0) > 0 ? '↳ ' : '';
+    const level = Number(comment.level || 0);
+    const prefix = level > 0 ? '↳ ' : '';
     const safeContent = content.replace(/\|/g, '\\|');
-    threadMap.get(threadKey).lines.push(`${prefix}${safeContent}`);
+    threadMap.get(threadKey).items.push({
+      line: `${prefix}${safeContent}`,
+      level,
+      index: itemIndex++
+    });
   }
 
   if (threads.length === 0) {
@@ -110,7 +116,14 @@ function renderUsefulComments(usefulComments) {
   return [
     '| 评论 | 内容 |',
     '| --- | --- |',
-    ...threads.map((thread, index) => `| 评论 ${index + 1} | ${thread.lines.join('<br>')} |`)
+    ...threads.map((thread, index) => {
+      const lines = thread.items
+        .slice()
+        .sort((a, b) => (a.level - b.level) || (a.index - b.index))
+        .map((item) => item.line)
+        .join('<br>');
+      return `| 评论 ${index + 1} | ${lines} |`;
+    })
   ].join('\n');
 }
 
@@ -121,6 +134,7 @@ function normalizeCommentText(text) {
 }
 
 function isLikelyNoiseComment(comment) {
+  if (comment?.isAuthor) return false;
   const text = normalizeCommentText(comment.content);
   if (!text) return true;
   if (/^(蹲|dd|mark|来了|确实|好看|不错|厉害|学习了|收藏了|收到)$/i.test(text)) return true;
@@ -156,7 +170,24 @@ function selectUsefulComments({ comments, config }) {
   }
 
   const filtered = unique.filter((item) => !isLikelyNoiseComment(item) && hasUsefulCommentSignal(item));
-  if (filtered.length > 0) return filtered.slice(0, 40);
+  if (filtered.length > 0) {
+    const limit = 40;
+    if (filtered.length <= limit) return filtered;
+
+    const result = [];
+    const authors = filtered.filter((item) => item.isAuthor);
+    const nonAuthors = filtered.filter((item) => !item.isAuthor);
+
+    for (const item of authors) {
+      if (result.length >= limit) break;
+      result.push(item);
+    }
+    for (const item of nonAuthors) {
+      if (result.length >= limit) break;
+      result.push(item);
+    }
+    return result;
+  }
   return unique.filter((item) => !isLikelyNoiseComment(item)).slice(0, 20);
 }
 
