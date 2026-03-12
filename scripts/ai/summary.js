@@ -1,9 +1,9 @@
 function buildAiInput({ title, content, ocrTexts }) {
   const ocr = (ocrTexts || []).map(o => o.text).filter(Boolean).join('\n');
   return [
-    `标题：${title || ''}`,
-    `正文：${content || ''}`,
-    `OCR：${ocr || ''}`
+    `\u6807\u9898\uff1a${title || ''}`,
+    `\u6b63\u6587\uff1a${content || ''}`,
+    `OCR\uff1a${ocr || ''}`
   ].join('\n');
 }
 
@@ -38,16 +38,6 @@ function parseAiResponse(text) {
   return { summary: '', tags: [] };
 }
 
-function fallbackSummaryTags({ title, content, noteTags }) {
-  const base = (content || '').split('\n')[0] || title || '';
-  const summary = base.substring(0, 50);
-  const tags = Array.from(new Set(['小红书', ...(noteTags || [])])).filter(Boolean).slice(0, 5);
-  while (tags.length < 3) tags.push('笔记');
-  return { summary, tags };
-}
-
-module.exports = { buildAiInput, parseAiResponse, fallbackSummaryTags };
-
 function normalizeAiResponse(payload) {
   if (typeof payload === 'string') {
     return parseAiResponse(payload);
@@ -61,4 +51,14 @@ function normalizeAiResponse(payload) {
   return { summary: '', tags: [] };
 }
 
-module.exports.normalizeAiResponse = normalizeAiResponse;
+function fallbackSummaryTags({ title, content, noteTags }) {
+  const base = (content || '').split('\n')[0] || title || '';
+  const summary = base.substring(0, 50);
+  const tags = Array.from(new Set(['\u5c0f\u7ea2\u4e66', ...(noteTags || [])]))
+    .filter(Boolean)
+    .slice(0, 5);
+  while (tags.length < 3) tags.push('\u7b14\u8bb0');
+  return { summary, tags };
+}
+
+module.exports = { buildAiInput, parseAiResponse, normalizeAiResponse, fallbackSummaryTags };
