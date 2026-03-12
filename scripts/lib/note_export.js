@@ -6,7 +6,7 @@ const { createWorker } = require('tesseract.js');
 const { buildAiInput, parseAiResponse, fallbackSummaryTags } = require('../ai/summary');
 const { cleanTags } = require('../ai/tag_clean');
 const { loadOpenRouterConfig, loadVisionOcrConfig } = require('./config');
-const { CodexTaskError } = require('./errors');
+const { runOcrWithProvider, shouldUseVisionOcr } = require('./ocr_provider');
 
 function sanitizeFilename(name) {
   return String(name || '')
@@ -359,18 +359,6 @@ function writeSingleNoteMarkdown({ outputRoot, note, content, ocrTexts, summary,
   });
   fs.writeFileSync(filepath, `\uFEFF${markdown}`, 'utf-8');
   return filepath;
-}
-
-function shouldUseVisionOcr(config) {
-  return Boolean(
-    config &&
-    !config._missing &&
-    !config._invalid &&
-    config.enabled !== false &&
-    String(config.baseUrl || '').trim() &&
-    String(config.apiKey || '').trim() &&
-    String(config.model || '').trim()
-  );
 }
 
 function getVisionOcrEndpoint(config) {
@@ -785,32 +773,14 @@ async function processSingleNoteExport({
   const config = loadOpenRouterConfig({ projectDir, configPath });
   const visionConfig = loadVisionOcrConfig({ projectDir, configPath: visionConfigPath });
   const content = cleanContent(note.content, note.title);
-  let ocrTexts = [];
-
-  if (shouldUseVisionOcr(visionConfig)) {
-    try {
-      ocrTexts = await ocrImagesWithVision({
-        images: note.images,
-        config: visionConfig
-      });
-    } catch (error) {
-      if (visionConfig.fallbackToTesseract === false) {
-        throw new CodexTaskError(
-          'vision_ocr_failed',
-          error?.message || 'Vision OCR failed',
-          { cause: error }
-        );
-      }
-    }
-  }
-
-  if (ocrTexts.length === 0 && (!shouldUseVisionOcr(visionConfig) || visionConfig.fallbackToTesseract !== false)) {
-    ocrTexts = await ocrImages({
-      images: note.images,
-      imagesRoot,
-      noteId: note.noteId
-    });
-  }
+  const ocrTexts = await runOcrWithProvider({
+    images: note.images,
+    noteId: note.noteId,
+    imagesRoot,
+    visionConfig,
+    runVisionOcr: ocrImagesWithVision,
+    runTesseractOcr: ocrImages
+  });
 
   const { summary, tags } = await getSummaryTags({
     note,
