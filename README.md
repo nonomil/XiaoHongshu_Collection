@@ -2,6 +2,15 @@
 
 把小红书收藏夹导出为本地 Markdown，并支持 OCR + AI 自动摘要/标签。
 
+## 统一任务管线（当前架构）
+核心流程统一为：`input -> fetch -> enrich -> write -> report`。
+
+- **input**：将 CLI / UI 输入规范化为任务对象
+- **fetch**：从 Chrome/CDP 抓取笔记或收藏数据
+- **enrich**：评论提炼 / OCR / AI 摘要等增强（失败时允许退化）
+- **write**：落盘 Markdown 与评论归档
+- **report**：生成统一 report（UI 输出 JSON，CLI 输出 summary）
+
 ## 快速开始（最短流程）
 
 ### 1) 准备环境
@@ -29,6 +38,11 @@ node scripts/ocr_and_write.js
 ```
 
 输出文件会生成在 `output/{昵称_uid}/`。
+
+## 主要入口
+- 单笔记保存（CLI）：`node scripts/save_note.js <笔记链接>` 或 `node scripts/save_note.js --current`
+- 收藏夹导出（CLI）：`node scripts/extract_v4.js` + `node scripts/ocr_and_write.js`
+- UI 入口：运行 `启动小红书保存入口.bat`，浏览器访问 `http://127.0.0.1:3030/`
 
 ## 目录结构
 ```
@@ -72,6 +86,12 @@ node scripts/ocr_and_write.js
 3. 运行 `scripts/ocr_and_write.js` 时会自动读取配置。
 
 > `config/openrouter.json` 已在 `.gitignore` 中忽略。
+
+## 常见错误与退化策略
+- **Chrome 9222 不可用**：提示启动参数并引导重新打开
+- **当前标签页不是笔记页**：提示打开正确页面
+- **Vision OCR 失败**：默认回退到 Tesseract（可配置关闭）
+- **AI 摘要失败**：回退到本地 summary/tags，不影响导出
 
 **OCR 纠错（可选）**
 在 `config/openrouter.json` 里可追加以下字段（可选）：
