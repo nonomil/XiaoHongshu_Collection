@@ -6,6 +6,7 @@ const { createWorker } = require('tesseract.js');
 const { buildAiInput, parseAiResponse, fallbackSummaryTags } = require('../ai/summary');
 const { cleanTags } = require('../ai/tag_clean');
 const { loadOpenRouterConfig, loadVisionOcrConfig } = require('./config');
+const { CodexTaskError } = require('./errors');
 
 function sanitizeFilename(name) {
   return String(name || '')
@@ -794,7 +795,11 @@ async function processSingleNoteExport({
       });
     } catch (error) {
       if (visionConfig.fallbackToTesseract === false) {
-        throw error;
+        throw new CodexTaskError(
+          'vision_ocr_failed',
+          error?.message || 'Vision OCR failed',
+          { cause: error }
+        );
       }
     }
   }

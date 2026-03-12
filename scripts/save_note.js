@@ -21,6 +21,7 @@ const {
   normalizeTaskInput
 } = require('./lib/task');
 const { resolveProjectPaths } = require('./lib/config');
+const { classifyTaskError } = require('./lib/errors');
 
 const PATHS = resolveProjectPaths(path.resolve(__dirname, '..'));
 const PROJECT_DIR = PATHS.projectDir;
@@ -107,48 +108,23 @@ function buildChromeLaunchArgs({
   ];
 }
 
-function collectErrorMessages(error) {
-  const messages = [];
-  const direct = String(error && error.message ? error.message : '').trim();
-  if (direct) messages.push(direct);
-
-  if (Array.isArray(error?.errors)) {
-    for (const item of error.errors) {
-      const nested = String(item && item.message ? item.message : '').trim();
-      if (nested) messages.push(nested);
-    }
-  }
-
-  if (error?.cause && error.cause !== error) {
-    const cause = String(error.cause.message || error.cause).trim();
-    if (cause) messages.push(cause);
-  }
-
-  if (error?.code && !messages.some((item) => item.includes(error.code))) {
-    messages.unshift(String(error.code));
-  }
-
-  return Array.from(new Set(messages.filter(Boolean)));
-}
-
 function formatSaveNoteError(error) {
-  const messages = collectErrorMessages(error);
-  const message = messages.join('; ').trim();
+  const info = classifyTaskError(error);
+  const message = info.message || 'Unknown save note error';
 
-  if (/ECONNREFUSED|connect ECONNREFUSED|socket hang up|ECONNRESET/i.test(message)) {
+  if (info.code === 'chrome_unavailable') {
     return `${message}. ${buildChromeDebugHelp()}`;
   }
 
-  if (/No xiaohongshu tab found/i.test(message)) {
+  if (info.code === 'no_xiaohongshu_tab') {
     return `${message}. 请先在同一个 Chrome 实例中打开至少一个小红书笔记标签页，再重试。`;
   }
 
-  return message || 'Unknown save note error';
+  return message;
 }
 
 function isChromeUnavailableError(error) {
-  const messages = collectErrorMessages(error).join('; ');
-  return /ECONNREFUSED|connect ECONNREFUSED|socket hang up|ECONNRESET/i.test(messages);
+  return classifyTaskError(error).code === 'chrome_unavailable';
 }
 
 function getNavigationUrl(mode) {

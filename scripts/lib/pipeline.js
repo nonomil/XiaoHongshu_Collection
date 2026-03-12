@@ -1,16 +1,4 @@
-function normalizeError(error) {
-  if (!error) return new Error('Unknown pipeline error');
-  if (error instanceof Error) return error;
-  return new Error(String(error));
-}
-
-function buildWarning(step, error) {
-  const normalized = normalizeError(error);
-  return {
-    step,
-    message: normalized.message || String(normalized)
-  };
-}
+const { classifyTaskError, buildTaskWarning } = require('./errors');
 
 async function runTaskPipeline({
   task,
@@ -42,12 +30,12 @@ async function runTaskPipeline({
         const enriched = await enrichFn(fetched, task);
         steps.enrich = { ok: true, data: enriched };
       } catch (err) {
-        const normalized = normalizeError(err);
-        const allowWrite = !!normalized.allowWrite || !!err?.allowWrite;
-        steps.enrich = { ok: false, error: normalized, allowWrite };
-        warnings.push(buildWarning('enrich', normalized));
+        const info = classifyTaskError(err);
+        const allowWrite = !!info.allowWrite;
+        steps.enrich = { ok: false, error: info.error, code: info.code, allowWrite };
+        warnings.push(buildTaskWarning({ step: 'enrich', error: info }));
         if (!allowWrite) {
-          error = normalized;
+          error = info.error;
         }
       }
     } else {
@@ -65,17 +53,17 @@ async function runTaskPipeline({
         const written = await writeFn(inputForWrite, task);
         steps.write = { ok: true, data: written };
       } catch (err) {
-        const normalized = normalizeError(err);
-        steps.write = { ok: false, error: normalized };
-        error = normalized;
+        const info = classifyTaskError(err);
+        steps.write = { ok: false, error: info.error, code: info.code };
+        error = info.error;
       }
     }
   } catch (err) {
-    const normalized = normalizeError(err);
+    const info = classifyTaskError(err);
     if (!steps.fetch) {
-      steps.fetch = { ok: false, error: normalized };
+      steps.fetch = { ok: false, error: info.error, code: info.code };
     }
-    error = normalized;
+    error = info.error;
   }
 
   stepOrder.push('report');
