@@ -14,6 +14,11 @@ const {
 } = require('./lib/cdp_note');
 const { normalizeNoteInput, normalizeNoteInputs } = require('./lib/note_input');
 const { processSingleNoteExport } = require('./lib/note_export');
+const {
+  assertValidTask,
+  buildNoteSaveTask,
+  normalizeTaskInput
+} = require('./lib/task');
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(PROJECT_DIR, 'output');
@@ -34,6 +39,41 @@ function parseArgs(argv) {
   }
 
   throw new Error('Usage: node scripts/save_note.js <url|share_text> | --current');
+}
+
+function buildTaskFromParsed(parsed, source = 'cli') {
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Invalid parsed input');
+  }
+
+  if (parsed.mode === 'current') {
+    return buildNoteSaveTask({ mode: 'current', source });
+  }
+
+  if (parsed.mode === 'input') {
+    const rawInput = Array.isArray(parsed.input)
+      ? parsed.input.join('\n')
+      : parsed.input;
+    return buildNoteSaveTask({
+      input: normalizeTaskInput(rawInput),
+      source
+    });
+  }
+
+  throw new Error('Unsupported save note input');
+}
+
+function taskToParsed(task) {
+  const valid = assertValidTask(task);
+  if (valid.type !== 'note-save') {
+    throw new Error('Unsupported task type for save note');
+  }
+
+  if (valid.options?.mode === 'current') {
+    return { mode: 'current' };
+  }
+
+  return { mode: 'input', input: valid.input };
 }
 
 function buildChromeDebugHelp() {
@@ -355,13 +395,20 @@ async function saveModesSequentially(modes, options = {}) {
 }
 
 async function runParsedInput(parsed, options = {}) {
-  const modes = await resolveRunModes(parsed, options);
+  const task = options.task || buildTaskFromParsed(parsed, options.source || 'cli');
+  const normalizedParsed = taskToParsed(task);
+  const modes = await resolveRunModes(normalizedParsed, options);
   const summary = await saveModesSequentially(modes, options);
-  return { modes, summary };
+  return { modes, summary, task };
 }
 
 async function saveLinksText(text, options = {}) {
-  const { summary } = await runParsedInput({ mode: 'input', input: text }, options);
+  const task = options.task || buildNoteSaveTask({
+    input: text,
+    source: options.source || 'ui'
+  });
+  const parsed = taskToParsed(task);
+  const { summary } = await runParsedInput(parsed, { ...options, task });
   return summary;
 }
 
@@ -386,7 +433,7 @@ function printCliSummary(summary) {
 
 async function run(argv = process.argv.slice(2), options = {}) {
   const parsed = options.parsed || parseArgs(argv);
-  return runParsedInput(parsed, options);
+  return runParsedInput(parsed, { ...options, source: options.source || 'cli' });
 }
 
 if (require.main === module) {

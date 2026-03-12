@@ -3,6 +3,11 @@ const http = require('http');
 const path = require('path');
 const { spawn } = require('child_process');
 const { saveLinksText } = require('./save_note');
+const {
+  assertValidTask,
+  buildCollectionTask,
+  buildNoteSaveTask
+} = require('./lib/task');
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
 const UI_DIR = path.join(PROJECT_DIR, 'ui');
@@ -120,7 +125,10 @@ function runNodeScript(scriptRelativePath) {
   });
 }
 
-async function runCollectionExport() {
+async function runCollectionExport(task) {
+  if (task) {
+    assertValidTask(task);
+  }
   const steps = [];
   const logs = [];
 
@@ -175,7 +183,9 @@ function createUiServer({
           return;
         }
 
-        const summary = await runExclusive('save-links', () => saveLinks(text));
+        const task = buildNoteSaveTask({ input: text, source: 'ui' });
+        assertValidTask(task);
+        const summary = await runExclusive('save-links', () => saveLinks(text, { task, source: 'ui' }));
         sendJson(response, 200, {
           ok: true,
           task: 'save-links',
@@ -190,7 +200,9 @@ function createUiServer({
       }
 
       if (request.method === 'POST' && url.pathname === '/api/save-collection') {
-        const result = await runExclusive('save-collection', () => runCollection());
+        const task = buildCollectionTask({ source: 'ui' });
+        assertValidTask(task);
+        const result = await runExclusive('save-collection', () => runCollection(task));
         sendJson(response, 200, {
           ok: true,
           task: 'save-collection',

@@ -5,6 +5,7 @@ const path = require('path');
 const { buildAccountKey } = require('./ai/account');
 const { parseUserMeResponse } = require('./ai/account_detect');
 const { buildAccountKeyFromDom } = require('./ai/account_dom');
+const { assertValidTask, buildCollectionTask } = require('./lib/task');
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
 const RAW_PATH = path.join(PROJECT_DIR, 'data', 'raw_notes.json');
@@ -452,7 +453,8 @@ async function processBoard(ws, board, existingNoteIds, account) {
   return notes;
 }
 
-async function main() {
+async function main(task = buildCollectionTask({ source: 'cli' })) {
+  assertValidTask(task);
   const wsUrl = await getTabWsUrl();
   const ws = new WebSocket(wsUrl);
   await new Promise(r => ws.on('open', r));
