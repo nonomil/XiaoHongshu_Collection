@@ -110,9 +110,11 @@ test('ui server rejects concurrent tasks while one request is still running', as
 });
 
 test('save-links api returns a normalized success payload', async () => {
+  let capturedTask;
   const { baseUrl } = await startServer({
-    saveLinksText: async (text) => {
+    saveLinksText: async (text, options = {}) => {
       assert.match(text, /abc123/);
+      capturedTask = options.task;
       return {
         total: 2,
         successCount: 1,
@@ -131,13 +133,13 @@ test('save-links api returns a normalized success payload', async () => {
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.ok, true);
-  assert.equal(response.body.task, 'save-links');
-  assert.deepEqual(response.body.summary, {
-    total: 2,
-    successCount: 1,
-    failureCount: 1
-  });
-  assert.equal(response.body.results.length, 2);
+  assert.equal(response.body.task, 'note-save');
+  assert.equal(response.body.report.total, 2);
+  assert.equal(response.body.report.successCount, 1);
+  assert.equal(response.body.report.failureCount, 1);
+  assert.equal(response.body.report.results.length, 2);
+  assert.equal(capturedTask.type, 'note-save');
+  assert.equal(capturedTask.source, 'ui');
 });
 
 test('save-collection api returns a normalized success payload', async () => {
@@ -155,7 +157,8 @@ test('save-collection api returns a normalized success payload', async () => {
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.ok, true);
-  assert.equal(response.body.task, 'save-collection');
-  assert.equal(response.body.result.steps.length, 2);
-  assert.deepEqual(response.body.result.logs, ['extract ok', 'ocr ok']);
+  assert.equal(response.body.task, 'collection-export');
+  assert.equal(response.body.report.status, 'success');
+  assert.equal(response.body.report.output.steps.length, 2);
+  assert.deepEqual(response.body.report.output.logs, ['extract ok', 'ocr ok']);
 });

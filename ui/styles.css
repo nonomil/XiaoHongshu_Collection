@@ -202,6 +202,13 @@ textarea:focus {
   white-space: pre-wrap;
 }
 
+.result-hint {
+  margin: 0;
+  padding: 0 24px 24px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 @media (max-width: 900px) {
   .grid {
     grid-template-columns: 1fr;

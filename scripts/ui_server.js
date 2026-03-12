@@ -6,6 +6,7 @@ const { saveLinksText } = require('./save_note');
 const { runTaskPipeline } = require('./lib/pipeline');
 const { resolveProjectPaths } = require('./lib/config');
 const { logError, logInfo } = require('./lib/logger');
+const { buildTaskResult, buildTaskSummary } = require('./lib/report');
 const {
   assertValidTask,
   buildCollectionTask,
@@ -206,15 +207,11 @@ function createUiServer({
         const task = buildNoteSaveTask({ input: text, source: 'ui' });
         assertValidTask(task);
         const summary = await runExclusive('save-links', () => saveLinks(text, { task, source: 'ui' }));
+        const report = buildTaskSummary(summary.results || [], { includeWarnings: true });
         sendJson(response, 200, {
           ok: true,
-          task: 'save-links',
-          summary: {
-            total: summary.total || 0,
-            successCount: summary.successCount || 0,
-            failureCount: summary.failureCount || 0
-          },
-          results: Array.isArray(summary.results) ? summary.results : []
+          task: task.type,
+          report
         });
         return;
       }
@@ -223,10 +220,16 @@ function createUiServer({
         const task = buildCollectionTask({ source: 'ui' });
         assertValidTask(task);
         const result = await runExclusive('save-collection', () => runCollection(task));
+        const report = buildTaskResult({
+          status: 'success',
+          task,
+          output: result,
+          warnings: result?.warnings || []
+        });
         sendJson(response, 200, {
           ok: true,
-          task: 'save-collection',
-          result
+          task: task.type,
+          report
         });
         return;
       }

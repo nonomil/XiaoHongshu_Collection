@@ -15,4 +15,6 @@ test('bat launcher exists and points to the local ui server entry', () => {
   assert.match(content, /LocalPort 3030/i);
   assert.match(content, /node ""%~dp0scripts\\ui_server\.js""/i);
   assert.match(content, /127\.0\.0\.1:3030/);
+  assert.match(content, /UI_URL/i);
+  assert.match(content, /start "" "%UI_URL%"/i);
 });
