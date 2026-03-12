@@ -7,6 +7,7 @@ const { buildAiInput, parseAiResponse, fallbackSummaryTags } = require('../ai/su
 const { cleanTags } = require('../ai/tag_clean');
 const { loadOpenRouterConfig, loadVisionOcrConfig } = require('./config');
 const { runOcrWithProvider, shouldUseVisionOcr } = require('./ocr_provider');
+const { getSummaryTagsWithProvider, normalizeSummaryTags, shouldUseAiSummary } = require('./summary_provider');
 
 function sanitizeFilename(name) {
   return String(name || '')
@@ -159,16 +160,6 @@ function selectUsefulComments({ comments, config }) {
   return unique.filter((item) => !isLikelyNoiseComment(item)).slice(0, 20);
 }
 
-function isAiEnabled(config) {
-  return Boolean(
-    config &&
-    !config._missing &&
-    !config._invalid &&
-    config.enabled !== false &&
-    String(config.apiKey || '').trim()
-  );
-}
-
 function parseCommentFilterResponse(text) {
   const raw = String(text || '').trim();
   if (!raw) return { keepIndexes: [] };
@@ -236,7 +227,7 @@ async function callCommentFilterAi({ usefulComments, config }) {
 
 async function getUsefulComments({ comments, config, reviewFn = callCommentFilterAi }) {
   const heuristicComments = selectUsefulComments({ comments, config });
-  if (heuristicComments.length <= 1 || !isAiEnabled(config)) {
+  if (heuristicComments.length <= 1 || !shouldUseAiSummary(config)) {
     return heuristicComments;
   }
 
@@ -259,7 +250,7 @@ async function summarizeUsefulComments({ usefulComments, config }) {
     return '评论区已采集，但未筛出高价值评论';
   }
 
-  const aiEnabled = isAiEnabled(config);
+  const aiEnabled = shouldUseAiSummary(config);
   if (!aiEnabled) {
     return `评论区共保留 ${list.length} 条高价值评论，主要涉及工具、经验补充和作者回复。`;
   }
@@ -698,19 +689,6 @@ async function ocrImagesWithVision({ images, config }) {
   return results;
 }
 
-function normalizeSummaryTags(ai, fallback) {
-  let summary = String(ai?.summary || '').replace(/\s+/g, ' ').trim();
-  if (!summary) summary = fallback.summary;
-  if (summary.length > 50) summary = summary.substring(0, 50);
-
-  const combined = [...(ai?.tags || []), ...(fallback.tags || [])]
-    .map((tag) => String(tag).trim())
-    .filter(Boolean);
-  const unique = Array.from(new Set(cleanTags(combined)));
-  while (unique.length < 3) unique.push('笔记');
-  return { summary, tags: unique.slice(0, 5) };
-}
-
 function buildSingleNoteExportResult({
   filepath,
   commentArchivePath = '',
@@ -733,35 +711,6 @@ function buildSingleNoteExportResult({
   };
 }
 
-async function getSummaryTags({ note, content, ocrTexts, config }) {
-  const fallback = fallbackSummaryTags({
-    title: note.title,
-    content,
-    noteTags: note.tags
-  });
-
-  const aiEnabled = isAiEnabled(config);
-  if (!aiEnabled) return fallback;
-
-  const input = buildAiInput({
-    title: note.title,
-    content: truncateText(content, 1500),
-    ocrTexts: (ocrTexts || []).map((item) => ({ text: truncateText(item.text, 800) }))
-  });
-
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      const ai = await callOpenRouter({ input, config });
-      return normalizeSummaryTags(ai, fallback);
-    } catch (error) {
-      if (attempt === 3) return fallback;
-      await sleep(500 * attempt);
-    }
-  }
-
-  return fallback;
-}
-
 async function processSingleNoteExport({
   outputRoot,
   imagesRoot,
@@ -782,7 +731,7 @@ async function processSingleNoteExport({
     runTesseractOcr: ocrImages
   });
 
-  const { summary, tags } = await getSummaryTags({
+  const { summary, tags } = await getSummaryTagsWithProvider({
     note,
     content,
     ocrTexts,
@@ -835,7 +784,6 @@ module.exports = {
   generateMarkdown,
   getUsefulComments,
   getVisionOcrEndpoint,
-  getSummaryTags,
   normalizeCommentText,
   normalizeSummaryTags,
   ocrImages,

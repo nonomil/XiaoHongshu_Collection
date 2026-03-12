@@ -47,3 +47,18 @@ function fallbackSummaryTags({ title, content, noteTags }) {
 }
 
 module.exports = { buildAiInput, parseAiResponse, fallbackSummaryTags };
+
+function normalizeAiResponse(payload) {
+  if (typeof payload === 'string') {
+    return parseAiResponse(payload);
+  }
+  if (payload && typeof payload === 'object') {
+    return {
+      summary: String(payload.summary || '').trim(),
+      tags: Array.isArray(payload.tags) ? payload.tags.map(t => String(t).trim()).filter(Boolean) : []
+    };
+  }
+  return { summary: '', tags: [] };
+}
+
+module.exports.normalizeAiResponse = normalizeAiResponse;
