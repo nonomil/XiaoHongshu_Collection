@@ -4,6 +4,8 @@ const assert = require('node:assert/strict');
 const {
   buildBoardNote,
   buildSingleNote,
+  ensureCommentsReady,
+  extractImageUrlsFromStateNote,
   expandAllComments,
   isNoteDetailUrl,
   selectDebuggerTab,
@@ -63,6 +65,35 @@ test('buildBoardNote preserves board collection', () => {
   assert.equal(note.noteUrl, 'https://www.xiaohongshu.com/explore/abc123');
 });
 
+test('extractImageUrlsFromStateNote falls back to imageList urls when DOM images are unavailable', () => {
+  const images = extractImageUrlsFromStateNote({
+    imageList: [
+      {
+        url: '',
+        urlDefault: 'http://example.com/default-1.webp',
+        urlPre: 'http://example.com/pre-1.webp',
+        infoList: [
+          { imageScene: 'WB_PRV', url: 'http://example.com/pre-1.webp' },
+          { imageScene: 'WB_DFT', url: 'http://example.com/default-1.webp' }
+        ]
+      },
+      {
+        url: '',
+        urlDefault: '',
+        urlPre: '',
+        infoList: [
+          { imageScene: 'WB_PRV', url: 'http://example.com/pre-2.webp' }
+        ]
+      }
+    ]
+  });
+
+  assert.deepEqual(images, [
+    'https://example.com/default-1.webp',
+    'https://example.com/pre-2.webp'
+  ]);
+});
+
 test('waitForCommentStateChange polls until comment state changes', async () => {
   const states = [
     { commentCount: 11, buttonCount: 2 },
@@ -81,6 +112,26 @@ test('waitForCommentStateChange polls until comment state changes', async () => 
 
   assert.deepEqual(result, { changed: true, state: { commentCount: 16, buttonCount: 1 } });
   assert.deepEqual(waits, [300, 300, 300]);
+});
+
+test('waitForCommentStateChange treats comment window replacement as a state change', async () => {
+  const states = [
+    { commentCount: 20, buttonCount: 0, lastCommentId: 'c20' },
+    { commentCount: 20, buttonCount: 0, lastCommentId: 'c40' }
+  ];
+
+  const result = await waitForCommentStateChange({
+    previousState: { commentCount: 20, buttonCount: 0, lastCommentId: 'c20' },
+    readState: async () => states.shift(),
+    wait: async () => {},
+    attempts: 2,
+    intervalMs: 50
+  });
+
+  assert.deepEqual(result, {
+    changed: true,
+    state: { commentCount: 20, buttonCount: 0, lastCommentId: 'c40' }
+  });
 });
 
 test('expandAllComments keeps clicking while delayed updates still reveal more comments', async () => {
@@ -103,6 +154,65 @@ test('expandAllComments keeps clicking while delayed updates still reveal more c
   });
 
   assert.equal(clicks.length, 2);
+});
+
+test('ensureCommentsReady scrolls lazy-loaded comments into a readable state before expansion', async () => {
+  const readyState = {
+    hasCommentsRoot: true,
+    commentCount: 13,
+    buttonCount: 0,
+    totalCount: 30,
+    reachedEnd: false,
+    lastCommentId: 'c13',
+    isLoading: false
+  };
+  const scrolls = [];
+
+  const state = await ensureCommentsReady(null, 3, {
+    readState: async () => ({
+      hasCommentsRoot: true,
+      commentCount: 0,
+      buttonCount: 0,
+      totalCount: 0,
+      reachedEnd: false,
+      lastCommentId: '',
+      isLoading: true
+    }),
+    scrollMore: async () => {
+      scrolls.push('scrolled');
+      return true;
+    },
+    waitForStateChange: async () => ({
+      changed: true,
+      state: readyState
+    })
+  });
+
+  assert.equal(scrolls.length, 1);
+  assert.deepEqual(state, readyState);
+});
+
+test('expandAllComments keeps advancing when more top-level comments require scrolling instead of show-more buttons', async () => {
+  const loopStates = [
+    { commentCount: 10, buttonCount: 0, totalCount: 30, reachedEnd: false, lastCommentId: 'c10' }
+  ];
+  const waitResults = [
+    { changed: true, state: { commentCount: 20, buttonCount: 0, totalCount: 30, reachedEnd: false, lastCommentId: 'c20' } },
+    { changed: true, state: { commentCount: 30, buttonCount: 0, totalCount: 30, reachedEnd: true, lastCommentId: 'c30' } }
+  ];
+  const scrolls = [];
+
+  await expandAllComments(null, 5, {
+    readState: async () => loopStates.shift() || { commentCount: 30, buttonCount: 0, totalCount: 30, reachedEnd: true, lastCommentId: 'c30' },
+    clickNext: async () => false,
+    scrollMore: async () => {
+      scrolls.push('scrolled');
+      return true;
+    },
+    waitForStateChange: async () => waitResults.shift() || { changed: false, state: { commentCount: 30, buttonCount: 0, totalCount: 30, reachedEnd: true, lastCommentId: 'c30' } }
+  });
+
+  assert.equal(scrolls.length, 2);
 });
 
 test('waitForNoteDetailReady polls until the note detail title is available', async () => {

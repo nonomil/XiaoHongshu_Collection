@@ -10,6 +10,9 @@ test('bat launcher exists and points to the local ui server entry', () => {
 
   const content = fs.readFileSync(launcherPath, 'utf-8');
   assert.match(content, /cd \/d "%~dp0"/i);
-  assert.match(content, /node scripts\\ui_server\.js/i);
+  assert.match(content, /Stop-Process/i);
+  assert.match(content, /Get-NetTCPConnection/i);
+  assert.match(content, /LocalPort 3030/i);
+  assert.match(content, /node ""%~dp0scripts\\ui_server\.js""/i);
   assert.match(content, /127\.0\.0\.1:3030/);
 });

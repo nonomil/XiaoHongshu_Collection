@@ -11,6 +11,7 @@ const {
   getUsefulComments,
   getPrimaryProjectDir,
   getVisionOcrEndpoint,
+  normalizeSummaryTags,
   renderUsefulComments,
   resolveVisionOcrConfigPath,
   selectUsefulComments,
@@ -74,7 +75,8 @@ test('generateMarkdown includes content, OCR, image, and useful comment sections
   assert.match(markdown, /## 评论区总结/);
   assert.match(markdown, /评论区主要补充了工具名、资源站和作者答疑。/);
   assert.match(markdown, /## 有用评论全文/);
-  assert.match(markdown, /评论者/);
+  assert.match(markdown, /\| 评论 \| 内容 \|/);
+  assert.match(markdown, /给网址让模型自己分析再复刻会更稳。/);
   assert.match(markdown, /\*来源：小红书 \[@作者\]\(https:\/\/www\.xiaohongshu\.com\/discovery\/item\/abc123\)\*/);
 });
 
@@ -104,6 +106,54 @@ test('generateMarkdown renders comment collection failure without blocking note 
 test('renderUsefulComments returns fallback when no useful comments are kept', () => {
   const section = renderUsefulComments([]);
   assert.match(section, /未筛出高价值评论/);
+});
+
+test('renderUsefulComments groups threaded replies into one markdown table row', () => {
+  const section = renderUsefulComments([
+    { commentId: 'c1', rootId: 'c1', parentId: '', level: 0, content: '主评论' },
+    { commentId: 'c2', rootId: 'c1', parentId: 'c1', level: 1, content: '第一条回复' },
+    { commentId: 'c3', rootId: 'c1', parentId: 'c1', level: 1, content: '第二条回复' },
+    { commentId: 'c4', rootId: 'c4', parentId: '', level: 0, content: '另一条主评论' }
+  ]);
+
+  assert.match(section, /\| 评论 \| 内容 \|/);
+  assert.match(section, /\| 评论 1 \| 主评论<br>↳ 第一条回复<br>↳ 第二条回复 \|/);
+  assert.match(section, /\| 评论 2 \| 另一条主评论 \|/);
+  assert.doesNotMatch(section, /作者|时间|点赞/);
+});
+
+test('generateMarkdown places comments after OCR and before original images', () => {
+  const markdown = generateMarkdown({
+    note: {
+      title: '标题',
+      noteId: 'abc123',
+      author: '作者',
+      collection: '单条笔记保存',
+      date: '2026-03-08',
+      tags: ['标签1'],
+      images: ['https://example.com/a.jpg']
+    },
+    content: '正文内容',
+    ocrTexts: [{ index: 0, text: '图片文字' }],
+    summary: '一句话摘要',
+    tags: ['标签1', '标签2', '标签3'],
+    commentSummary: '评论总结',
+    usefulComments: [
+      { commentId: 'c1', rootId: 'c1', parentId: '', level: 0, content: '主评论' }
+    ]
+  });
+
+  assert.equal(markdown.indexOf('## 评论区总结') > markdown.indexOf('## 图片内容（OCR 识别）'), true);
+  assert.equal(markdown.indexOf('## 评论区总结') < markdown.indexOf('## 原始图片'), true);
+});
+
+test('normalizeSummaryTags removes garbled tags before frontmatter output', () => {
+  const result = normalizeSummaryTags(
+    { summary: '一句话摘要', tags: ['С����', '家庭教育'] },
+    { summary: '后备摘要', tags: ['学习工具', '儿童自驱力'] }
+  );
+
+  assert.deepEqual(result.tags, ['家庭教育', '学习工具', '儿童自驱力']);
 });
 
 test('selectUsefulComments filters obvious noise comments with heuristic fallback', () => {
@@ -171,6 +221,34 @@ test('writeSingleNoteMarkdown overwrites the same path for the same note', () =>
 
   assert.equal(firstPath, secondPath);
   assert.equal(fs.readFileSync(secondPath, 'utf-8').includes('第二次'), true);
+});
+
+test('writeSingleNoteMarkdown writes UTF-8 BOM for Windows-compatible markdown display', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-note-export-'));
+  const note = {
+    title: '编码测试',
+    noteId: 'bom123',
+    author: '作者',
+    collection: '单条笔记保存',
+    date: '2026-03-12',
+    tags: [],
+    images: []
+  };
+
+  const filepath = writeSingleNoteMarkdown({
+    outputRoot: tempRoot,
+    note,
+    content: '中文正文',
+    ocrTexts: [],
+    summary: '摘要',
+    tags: ['标签1', '标签2', '标签3']
+  });
+
+  const bytes = fs.readFileSync(filepath);
+  assert.equal(bytes[0], 0xEF);
+  assert.equal(bytes[1], 0xBB);
+  assert.equal(bytes[2], 0xBF);
+  assert.equal(bytes.toString('utf8').includes('中文正文'), true);
 });
 
 test('writeCommentArchive writes raw comments json', () => {

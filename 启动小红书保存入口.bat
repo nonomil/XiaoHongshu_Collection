@@ -12,7 +12,10 @@ if errorlevel 1 (
   exit /b 1
 )
 
-start "XHS UI Server" /MIN cmd /c "cd /d ""%~dp0"" && node scripts\ui_server.js"
+echo Restarting local UI server...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort 3030 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force }" >nul 2>nul
+
+start "XHS UI Server" /MIN cmd /c "cd /d ""%~dp0"" && node ""%~dp0scripts\ui_server.js"""
 timeout /t 2 >nul
 
 start "" "%UI_URL%"

@@ -4,6 +4,7 @@ const https = require('https');
 const path = require('path');
 const { createWorker } = require('tesseract.js');
 const { buildAiInput, parseAiResponse, fallbackSummaryTags } = require('../ai/summary');
+const { cleanTags } = require('../ai/tag_clean');
 
 function sanitizeFilename(name) {
   return String(name || '')
@@ -74,15 +75,40 @@ function renderUsefulComments(usefulComments) {
     return '评论区已采集，但未筛出高价值评论\n';
   }
 
-  return usefulComments.map((comment, index) => [
-    `### 评论 ${index + 1}`,
-    '',
-    `- 作者：${comment.author || '未知'}`,
-    `- 时间：${comment.date || '未知'}`,
-    `- 点赞：${comment.likeCount ?? 0}`,
-    `- 内容：${String(comment.content || '').trim()}`,
-    ''
-  ].join('\n')).join('\n');
+  const threads = [];
+  const threadMap = new Map();
+
+  for (const comment of usefulComments) {
+    const content = normalizeCommentText(comment.content);
+    if (!content) continue;
+
+    const threadKey = String(
+      comment.rootId ||
+      (Number(comment.level || 0) > 0 ? comment.parentId : '') ||
+      comment.commentId ||
+      content
+    );
+
+    if (!threadMap.has(threadKey)) {
+      const thread = { lines: [] };
+      threadMap.set(threadKey, thread);
+      threads.push(thread);
+    }
+
+    const prefix = Number(comment.level || 0) > 0 ? '↳ ' : '';
+    const safeContent = content.replace(/\|/g, '\\|');
+    threadMap.get(threadKey).lines.push(`${prefix}${safeContent}`);
+  }
+
+  if (threads.length === 0) {
+    return '评论区已采集，但未筛出高价值评论\n';
+  }
+
+  return [
+    '| 评论 | 内容 |',
+    '| --- | --- |',
+    ...threads.map((thread, index) => `| 评论 ${index + 1} | ${thread.lines.join('<br>')} |`)
+  ].join('\n');
 }
 
 function normalizeCommentText(text) {
@@ -264,7 +290,9 @@ function generateMarkdown({ note, content, ocrTexts, summary, tags, commentSumma
   const shortNote = cleanedContent.length < 50;
   const sourceUrl = `https://www.xiaohongshu.com/discovery/item/${note.noteId}`;
   const safeSummary = summary || note.title || '';
-  const safeTags = (tags && tags.length > 0) ? tags : ['小红书', ...(note.tags || [])];
+  let safeTags = cleanTags((tags && tags.length > 0) ? tags : ['小红书', ...(note.tags || [])]);
+  while (safeTags.length < 3) safeTags.push('笔记');
+  safeTags = safeTags.slice(0, 5);
 
   let md = '---\n';
   md += `title: "${note.title}"\n`;
@@ -289,18 +317,18 @@ function generateMarkdown({ note, content, ocrTexts, summary, tags, commentSumma
     });
   }
 
-  if (note.images && note.images.length > 0) {
-    md += '\n---\n\n## 原始图片\n\n';
-    note.images.forEach((img, index) => {
-      md += `![图 ${index + 1}](${img})\n\n`;
-    });
-  }
-
   if (commentSummary || commentError || (usefulComments && usefulComments.length > 0)) {
     md += '\n---\n\n## 评论区总结\n\n';
     md += `${commentError || commentSummary || '评论区已采集，但未筛出高价值评论'}\n\n`;
     md += '## 有用评论全文\n\n';
     md += `${renderUsefulComments(usefulComments)}\n`;
+  }
+
+  if (note.images && note.images.length > 0) {
+    md += '\n---\n\n## 原始图片\n\n';
+    note.images.forEach((img, index) => {
+      md += `![图 ${index + 1}](${img})\n\n`;
+    });
   }
 
   md += '\n---\n';
@@ -317,7 +345,7 @@ function writeSingleNoteMarkdown({ outputRoot, note, content, ocrTexts, summary,
   });
 
   fs.mkdirSync(boardDir, { recursive: true });
-  fs.writeFileSync(filepath, generateMarkdown({
+  const markdown = generateMarkdown({
     note,
     content,
     ocrTexts,
@@ -326,7 +354,8 @@ function writeSingleNoteMarkdown({ outputRoot, note, content, ocrTexts, summary,
     commentSummary,
     usefulComments,
     commentError
-  }), 'utf-8');
+  });
+  fs.writeFileSync(filepath, `\uFEFF${markdown}`, 'utf-8');
   return filepath;
 }
 
@@ -727,7 +756,7 @@ function normalizeSummaryTags(ai, fallback) {
   const combined = [...(ai?.tags || []), ...(fallback.tags || [])]
     .map((tag) => String(tag).trim())
     .filter(Boolean);
-  const unique = Array.from(new Set(combined));
+  const unique = Array.from(new Set(cleanTags(combined)));
   while (unique.length < 3) unique.push('笔记');
   return { summary, tags: unique.slice(0, 5) };
 }
@@ -844,6 +873,7 @@ module.exports = {
   getSummaryTags,
   loadConfig,
   normalizeCommentText,
+  normalizeSummaryTags,
   ocrImages,
   ocrImagesWithVision,
   processSingleNoteExport,

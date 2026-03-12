@@ -5,6 +5,50 @@ function isNoteDetailUrl(url) {
   return /xiaohongshu\.com\/(?:explore|discovery\/item)\//i.test(String(url || ''));
 }
 
+function normalizeImageUrl(url) {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  if (value.startsWith('//')) return `https:${value}`;
+  if (value.startsWith('http://')) return `https://${value.slice('http://'.length)}`;
+  return value;
+}
+
+function extractImageUrlsFromStateNote(note) {
+  const list = Array.isArray(note?.imageList) ? note.imageList : [];
+  const urls = [];
+  const seen = new Set();
+
+  for (const item of list) {
+    const infoList = Array.isArray(item?.infoList) ? item.infoList : [];
+    const candidates = [
+      item?.url,
+      item?.urlDefault,
+      item?.urlPre,
+      ...infoList
+        .slice()
+        .sort((left, right) => {
+          const score = (entry) => {
+            if (entry?.imageScene === 'WB_DFT') return 0;
+            if (entry?.imageScene === 'WB_PRV') return 1;
+            return 2;
+          };
+          return score(left) - score(right);
+        })
+        .map((entry) => entry?.url)
+    ];
+
+    const picked = candidates
+      .map((value) => normalizeImageUrl(value))
+      .find((value) => value && !seen.has(value));
+
+    if (!picked) continue;
+    seen.add(picked);
+    urls.push(picked);
+  }
+
+  return urls;
+}
+
 function buildBaseNote({ detail, noteId, collection, account }) {
   return {
     title: detail.title || '',
@@ -187,7 +231,22 @@ async function readCommentExpansionState(ws) {
       const commentsRoot = root.querySelector('.comments-container, .comments-el');
       const commentCount = commentsRoot ? commentsRoot.querySelectorAll('.comment-item').length : 0;
       const buttonCount = commentsRoot ? commentsRoot.querySelectorAll('.show-more').length : 0;
-      return JSON.stringify({ commentCount, buttonCount });
+      const text = commentsRoot ? String(commentsRoot.textContent || '') : '';
+      const totalMatch = text.match(/\\u5171\\s*(\\d+)\\s*\\u6761\\u8bc4\\u8bba/);
+      const items = commentsRoot ? Array.from(commentsRoot.querySelectorAll('.comment-item')) : [];
+      const lastNode = items.length > 0 ? items[items.length - 1] : null;
+      const lastCommentId = lastNode
+        ? ((lastNode.getAttribute('id') || '').replace(/^comment-/, '') || lastNode.getAttribute('data-rid') || lastNode.getAttribute('data-id') || '')
+        : '';
+      return JSON.stringify({
+        hasCommentsRoot: !!commentsRoot,
+        commentCount,
+        buttonCount,
+        totalCount: totalMatch ? Number(totalMatch[1]) : 0,
+        reachedEnd: text.includes('THE END'),
+        lastCommentId,
+        isLoading: /加载中/.test(text)
+      });
     })()
   `);
 }
@@ -216,6 +275,57 @@ async function clickNextCommentExpander(ws) {
   return !!result.clicked;
 }
 
+async function scrollMoreComments(ws) {
+  const result = await evaluateJson(ws, `
+    (function() {
+      const root = document.querySelector('#noteContainer') || document;
+      const commentsRoot = root.querySelector('.comments-container, .comments-el');
+      if (!commentsRoot) {
+        return JSON.stringify({ scrolled: false });
+      }
+
+      const target =
+        commentsRoot.querySelector('.comment-list, .comments-list, [class*="comment-list"], [class*="comments-list"]') ||
+        commentsRoot;
+      const lastItem = commentsRoot.querySelector('.comment-item:last-child');
+
+      commentsRoot.scrollIntoView({ block: 'end' });
+      if (lastItem) {
+        lastItem.scrollIntoView({ block: 'end' });
+      }
+
+      if (typeof target.scrollTo === 'function') {
+        target.scrollTo({ top: target.scrollHeight, behavior: 'instant' });
+      }
+      target.scrollTop = target.scrollHeight;
+      window.scrollBy(0, Math.max(480, Math.floor(window.innerHeight * 0.9)));
+
+      return JSON.stringify({ scrolled: true });
+    })()
+  `);
+
+  return !!result.scrolled;
+}
+
+function shouldLoadMoreComments(state) {
+  if (!state) return false;
+  if (state.buttonCount > 0) return true;
+  if (state.reachedEnd) return false;
+  if (state.totalCount > 0) {
+    return state.commentCount < state.totalCount;
+  }
+  return false;
+}
+
+function shouldPrimeComments(state) {
+  if (!state?.hasCommentsRoot) return false;
+  if (state.commentCount > 0) return false;
+  if (state.buttonCount > 0) return false;
+  if (state.totalCount > 0) return false;
+  if (state.reachedEnd) return false;
+  return !!state.isLoading;
+}
+
 async function waitForCommentStateChange({
   previousState,
   readState,
@@ -229,8 +339,13 @@ async function waitForCommentStateChange({
     await wait(intervalMs);
     currentState = await readState();
     if (
+      currentState.hasCommentsRoot !== previousState.hasCommentsRoot ||
       currentState.commentCount !== previousState.commentCount ||
-      currentState.buttonCount !== previousState.buttonCount
+      currentState.buttonCount !== previousState.buttonCount ||
+      currentState.totalCount !== previousState.totalCount ||
+      currentState.lastCommentId !== previousState.lastCommentId ||
+      currentState.reachedEnd !== previousState.reachedEnd ||
+      currentState.isLoading !== previousState.isLoading
     ) {
       return { changed: true, state: currentState };
     }
@@ -239,18 +354,59 @@ async function waitForCommentStateChange({
   return { changed: false, state: currentState };
 }
 
-async function expandAllComments(ws, maxRounds = 12, options = {}) {
+async function ensureCommentsReady(ws, maxRounds = 4, options = {}) {
   const readState = options.readState || (() => readCommentExpansionState(ws));
-  const clickNext = options.clickNext || (() => clickNextCommentExpander(ws));
+  const scrollMore = options.scrollMore || (() => scrollMoreComments(ws));
   const waitForStateChange = options.waitForStateChange || ((params) => waitForCommentStateChange(params));
 
   let currentState = await readState();
 
   for (let round = 0; round < maxRounds; round += 1) {
-    if (!currentState.buttonCount) break;
+    if (!shouldPrimeComments(currentState)) break;
 
-    const clicked = await clickNext();
-    if (!clicked) break;
+    const advanced = await scrollMore();
+    if (!advanced) break;
+
+    const result = await waitForStateChange({
+      previousState: currentState,
+      readState,
+      wait: options.wait || sleep,
+      attempts: options.attempts || 8,
+      intervalMs: options.intervalMs || 300
+    });
+
+    currentState = result.state;
+    if (!result.changed) break;
+  }
+
+  return currentState;
+}
+
+async function expandAllComments(ws, maxRounds = 12, options = {}) {
+  const readState = options.readState || (() => readCommentExpansionState(ws));
+  const clickNext = options.clickNext || (() => clickNextCommentExpander(ws));
+  const scrollMore = options.scrollMore || (() => scrollMoreComments(ws));
+  const waitForStateChange = options.waitForStateChange || ((params) => waitForCommentStateChange(params));
+
+  let currentState = await ensureCommentsReady(ws, options.readyAttempts || 4, {
+    readState,
+    scrollMore,
+    waitForStateChange,
+    wait: options.wait,
+    attempts: options.attempts,
+    intervalMs: options.intervalMs
+  });
+
+  for (let round = 0; round < maxRounds; round += 1) {
+    if (!shouldLoadMoreComments(currentState)) break;
+
+    let advanced = false;
+    if (currentState.buttonCount > 0) {
+      advanced = await clickNext();
+    } else {
+      advanced = await scrollMore();
+    }
+    if (!advanced) break;
 
     const result = await waitForStateChange({
       previousState: currentState,
@@ -261,7 +417,8 @@ async function expandAllComments(ws, maxRounds = 12, options = {}) {
     });
 
     currentState = result.state;
-    if (!result.changed && currentState.buttonCount === 0) break;
+    if (!result.changed && !shouldLoadMoreComments(currentState)) break;
+    if (!result.changed) break;
   }
 }
 
@@ -346,6 +503,11 @@ async function extractNoteDetail(ws) {
         }
       });
 
+      const state = window.__INITIAL_STATE__ || {};
+      const noteMap = state.note && state.note.noteDetailMap ? state.note.noteDetailMap : {};
+      const noteKey = Object.keys(noteMap).find((key) => key && noteMap[key] && noteMap[key].note) || '';
+      const stateNote = noteKey && noteMap[noteKey] ? (noteMap[noteKey].note || null) : null;
+
       return JSON.stringify({
         url: location.href,
         title: titleEl ? titleEl.textContent.trim() : '',
@@ -353,10 +515,18 @@ async function extractNoteDetail(ws) {
         author: authorEl ? authorEl.textContent.trim() : '',
         date: dateEl ? dateEl.textContent.trim() : '',
         tags,
-        images
+        images,
+        stateNote
       });
     })()
   `);
+
+  const stateImages = extractImageUrlsFromStateNote(result.stateNote);
+  const domImages = Array.isArray(result.images)
+    ? result.images.map((value) => normalizeImageUrl(value)).filter(Boolean)
+    : [];
+  result.images = domImages.length > 0 ? domImages : stateImages;
+  delete result.stateNote;
 
   try {
     result.comments = await extractNoteComments(ws);
@@ -379,6 +549,8 @@ module.exports = {
   buildSingleNote,
   clickNextCommentExpander,
   connectToChrome,
+  ensureCommentsReady,
+  extractImageUrlsFromStateNote,
   expandAllComments,
   extractNoteComments,
   extractNoteDetail,
@@ -391,6 +563,7 @@ module.exports = {
   selectDebuggerTab,
   send,
   sleep,
+  scrollMoreComments,
   waitForNoteDetailReady,
   waitForCommentStateChange
 };
