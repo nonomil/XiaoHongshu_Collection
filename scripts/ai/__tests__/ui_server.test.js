@@ -29,6 +29,7 @@ async function startServer(overrides = {}) {
         { script: 'ocr_and_write.js', code: 0 }
       ]
     })),
+    runInboxSync: overrides.runInboxSync,
     uiConfigPath: overrides.uiConfigPath
   });
 
@@ -181,6 +182,25 @@ test('save-collection api returns a normalized success payload', async () => {
   assert.equal(response.body.report.status, 'success');
   assert.equal(response.body.report.output.steps.length, 2);
   assert.deepEqual(response.body.report.output.logs, ['extract ok', 'ocr ok']);
+});
+
+test('inbox sync api returns a normalized success payload', async () => {
+  const { baseUrl } = await startServer({
+    runInboxSync: async () => ({
+      added: 2,
+      skipped: 1,
+      total: 3,
+      nextModified: 20
+    })
+  });
+
+  const response = await requestJson(`${baseUrl}/api/inbox/sync`, {});
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.report.added, 2);
+  assert.equal(response.body.report.skipped, 1);
+  assert.equal(response.body.report.total, 3);
 });
 
 test('ui config api returns defaults when missing', async () => {
