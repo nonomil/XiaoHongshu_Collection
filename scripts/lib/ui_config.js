@@ -9,7 +9,7 @@ const DEFAULT_UI_CONFIG = {
     collectionRawPath: ''
   },
   naming: {
-    conflictStrategy: 'content-aware',
+    conflictStrategy: 'overwrite',
     maxTitleLength: 80
   },
   runtime: {

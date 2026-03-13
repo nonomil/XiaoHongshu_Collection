@@ -371,7 +371,7 @@ function writeSingleNoteMarkdown({
   commentSummary,
   usefulComments,
   commentError,
-  conflictStrategy,
+  conflictStrategy = 'overwrite',
   maxTitleLength
 }) {
   const { boardDir, filepath } = buildNotePaths({
