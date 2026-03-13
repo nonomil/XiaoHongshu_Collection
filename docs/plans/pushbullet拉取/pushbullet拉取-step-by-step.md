@@ -21,9 +21,9 @@
  - [x] 解析 push 内容中 URL（包含正文内 URL 提取）
 
 ## Phase 3｜后端 API + CLI
-- [ ] 新增 API：`POST /api/inbox/sync`
-- [ ] 返回统计：新增/跳过/失败 + 错误摘要
-- [ ] CLI 命令：`npm run inbox:sync`（或脚本入口）
+ - [x] 新增 API：`POST /api/inbox/sync`
+ - [x] 返回统计：新增/跳过/失败 + 错误摘要
+ - [x] CLI 命令：`npm run inbox:sync`（或脚本入口）
 
 ## Phase 4｜UI 接入
 - [ ] 主界面新增“同步收件箱”按钮
