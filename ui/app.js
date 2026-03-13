@@ -3,6 +3,7 @@ const linksText = document.getElementById('links-text');
 const linksSubmit = document.getElementById('links-submit');
 const linksClear = document.getElementById('links-clear');
 const collectionSubmit = document.getElementById('collection-submit');
+const inboxSyncButton = document.getElementById('inbox-sync');
 const statusText = document.getElementById('status-text');
 const resultOutput = document.getElementById('result-output');
 const resultSummary = document.getElementById('result-summary');
@@ -32,6 +33,9 @@ const runtimeOcrFallback = document.getElementById('runtime-ocr-fallback');
 const runtimeOpenrouterTimeout = document.getElementById('runtime-openrouter-timeout');
 const runtimeVisionTimeout = document.getElementById('runtime-vision-timeout');
 const runtimeMaxImages = document.getElementById('runtime-max-images');
+const pushbulletEnabled = document.getElementById('pushbullet-enabled');
+const pushbulletToken = document.getElementById('pushbullet-token');
+const inboxPath = document.getElementById('inbox-path');
 const uiShowRaw = document.getElementById('ui-show-raw');
 
 let currentConfig = null;
@@ -40,6 +44,7 @@ let progressItems = new Map();
 function setBusy(isBusy, message) {
   linksSubmit.disabled = isBusy;
   collectionSubmit.disabled = isBusy;
+  inboxSyncButton.disabled = isBusy;
   configSave.disabled = isBusy;
   configReload.disabled = isBusy;
   statusText.textContent = message;
@@ -241,8 +246,18 @@ function readNumber(input, fallback) {
   return Number.isFinite(value) ? value : fallback;
 }
 
+function maskToken(token) {
+  const value = String(token || '');
+  if (!value) return '';
+  if (value.length <= 8) return '已保存';
+  return `${value.slice(0, 4)}***${value.slice(-4)}`;
+}
+
 function readConfigFromForm() {
   const fallback = currentConfig || {};
+  const tokenInput = String(pushbulletToken.value || '').trim();
+  const accessToken = tokenInput || fallback.pushbullet?.accessToken || '';
+  const inboxValue = String(inboxPath.value || '').trim();
   return {
     paths: {
       saveLinksOutputRoot: String(pathLinksOutput.value || '').trim(),
@@ -261,6 +276,14 @@ function readConfigFromForm() {
       openRouterTimeoutMs: readNumber(runtimeOpenrouterTimeout, fallback.runtime?.openRouterTimeoutMs || 30000),
       visionOcrTimeoutMs: readNumber(runtimeVisionTimeout, fallback.runtime?.visionOcrTimeoutMs || 60000),
       maxImagesPerNote: readNumber(runtimeMaxImages, fallback.runtime?.maxImagesPerNote || 12)
+    },
+    pushbullet: {
+      enabled: pushbulletEnabled.checked,
+      accessToken,
+      lastModified: Number(fallback.pushbullet?.lastModified || 0)
+    },
+    inbox: {
+      path: inboxValue || fallback.inbox?.path || ''
     },
     ui: {
       showRawReport: uiShowRaw.checked
@@ -282,6 +305,12 @@ function applyConfigToForm(config) {
   runtimeOpenrouterTimeout.value = cfg.runtime?.openRouterTimeoutMs ?? '';
   runtimeVisionTimeout.value = cfg.runtime?.visionOcrTimeoutMs ?? '';
   runtimeMaxImages.value = cfg.runtime?.maxImagesPerNote ?? '';
+  pushbulletEnabled.checked = cfg.pushbullet?.enabled === true;
+  pushbulletToken.value = '';
+  pushbulletToken.placeholder = cfg.pushbullet?.accessToken
+    ? `已保存：${maskToken(cfg.pushbullet.accessToken)}`
+    : '在 Pushbullet 账号设置中获取';
+  inboxPath.value = cfg.inbox?.path || '';
   uiShowRaw.checked = cfg.ui?.showRawReport !== false;
   updateRawReportVisibility(cfg);
 }
@@ -289,6 +318,27 @@ function applyConfigToForm(config) {
 function renderSummary(report) {
   resultSummary.innerHTML = '';
   if (!report) return;
+
+  if (typeof report.added === 'number') {
+    const summary = document.createElement('div');
+    summary.className = 'summary-block';
+    summary.innerHTML = `
+      <div>
+        <strong>新增</strong>
+        <span>${report.added}</span>
+      </div>
+      <div>
+        <strong>跳过</strong>
+        <span>${report.skipped ?? 0}</span>
+      </div>
+      <div>
+        <strong>总数</strong>
+        <span>${report.total ?? 0}</span>
+      </div>
+    `;
+    resultSummary.appendChild(summary);
+    return;
+  }
 
   if (typeof report.total === 'number') {
     const summary = document.createElement('div');
@@ -464,6 +514,25 @@ collectionSubmit.addEventListener('click', async () => {
     renderReport(payload);
   } catch (error) {
     statusText.textContent = '收藏导出失败';
+    renderText(error.message);
+  } finally {
+    setBusy(false, statusText.textContent);
+  }
+});
+
+inboxSyncButton.addEventListener('click', async () => {
+  setBusy(true, '正在同步收件箱...');
+  renderText('任务已提交，等待返回...');
+  resetProgressList();
+
+  try {
+    const payload = await requestJson('/api/inbox/sync', {
+      body: { uiConfig: readConfigFromForm() }
+    });
+    statusText.textContent = '收件箱同步完成';
+    renderReport(payload);
+  } catch (error) {
+    statusText.textContent = '收件箱同步失败';
     renderText(error.message);
   } finally {
     setBusy(false, statusText.textContent);
