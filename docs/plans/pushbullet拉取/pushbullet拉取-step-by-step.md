@@ -26,10 +26,10 @@
  - [x] CLI 命令：`npm run inbox:sync`（或脚本入口）
 
 ## Phase 4｜UI 接入
-- [ ] 主界面新增“同步收件箱”按钮
-- [ ] 同步中状态反馈（加载态 + 结果统计）
-- [ ] 设置弹窗新增 Pushbullet Token 输入
-- [ ] Token 展示掩码（保存后不明文回显）
+ - [x] 主界面新增“同步收件箱”按钮
+ - [x] 同步中状态反馈（加载态 + 结果统计）
+ - [x] 设置弹窗新增 Pushbullet Token 输入
+ - [x] Token 展示掩码（保存后不明文回显）
 
 ## Phase 5｜测试
 - [ ] InboxStore 单元测试
