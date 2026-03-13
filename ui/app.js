@@ -6,8 +6,14 @@ const collectionSubmit = document.getElementById('collection-submit');
 const statusText = document.getElementById('status-text');
 const resultOutput = document.getElementById('result-output');
 const resultSummary = document.getElementById('result-summary');
-const resultMeta = document.getElementById('result-meta');
 const rawReport = document.getElementById('raw-report');
+const progressList = document.getElementById('progress-list');
+const summaryRow = document.getElementById('summary-row');
+
+const openSettingsButton = document.getElementById('open-settings');
+const closeSettingsButton = document.getElementById('close-settings');
+const settingsOverlay = document.getElementById('settings-overlay');
+const settingsModal = document.getElementById('settings-modal');
 
 const configForm = document.getElementById('config-form');
 const configStatus = document.getElementById('config-status');
@@ -29,6 +35,7 @@ const runtimeMaxImages = document.getElementById('runtime-max-images');
 const uiShowRaw = document.getElementById('ui-show-raw');
 
 let currentConfig = null;
+let progressItems = new Map();
 
 function setBusy(isBusy, message) {
   linksSubmit.disabled = isBusy;
@@ -45,6 +52,53 @@ function renderText(value) {
 function setConfigStatus(message, tone = 'muted') {
   configStatus.textContent = message;
   configStatus.dataset.tone = tone;
+}
+
+const helpers = window.XhsUiHelpers || {};
+
+function renderSummaryRow(config) {
+  summaryRow.innerHTML = '';
+  const items = helpers.buildSummaryItems ? helpers.buildSummaryItems(config) : [];
+  if (items.length === 0) {
+    const empty = document.createElement('span');
+    empty.className = 'summary-chip';
+    empty.textContent = '尚未设置';
+    summaryRow.appendChild(empty);
+    return;
+  }
+  items.forEach((item) => {
+    const chip = document.createElement('span');
+    chip.className = 'summary-chip';
+    const label = document.createElement('strong');
+    label.textContent = item.label;
+    const value = document.createElement('span');
+    value.textContent = item.value;
+    chip.appendChild(label);
+    chip.appendChild(document.createTextNode(' '));
+    chip.appendChild(value);
+    if (item.value) {
+      chip.title = item.value;
+    }
+    summaryRow.appendChild(chip);
+  });
+}
+
+function openSettings() {
+  if (helpers.openSettingsModal) {
+    helpers.openSettingsModal({ overlay: settingsOverlay, modal: settingsModal });
+    return;
+  }
+  settingsOverlay.hidden = false;
+  settingsModal.hidden = false;
+}
+
+function closeSettings() {
+  if (helpers.closeSettingsModal) {
+    helpers.closeSettingsModal({ overlay: settingsOverlay, modal: settingsModal });
+    return;
+  }
+  settingsOverlay.hidden = true;
+  settingsModal.hidden = true;
 }
 
 function updateRawReportVisibility(config) {
@@ -65,6 +119,119 @@ async function requestJson(url, options = {}) {
     throw new Error(payload.error || '请求失败');
   }
   return payload;
+}
+
+async function requestNdjson(url, body, handlers = {}) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {})
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || '请求失败');
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!response.body || !contentType.includes('application/x-ndjson')) {
+    const payload = await response.json().catch(() => ({}));
+    return { type: 'done', report: payload.report || payload };
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  let lastDone = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const message = JSON.parse(line);
+      if (handlers.onEvent) handlers.onEvent(message);
+      if (message.type === 'done') lastDone = message;
+      if (message.type === 'error') {
+        throw new Error(message.error || '请求失败');
+      }
+    }
+  }
+
+  if (buffer.trim()) {
+    const message = JSON.parse(buffer);
+    if (handlers.onEvent) handlers.onEvent(message);
+    if (message.type === 'done') lastDone = message;
+    if (message.type === 'error') {
+      throw new Error(message.error || '请求失败');
+    }
+  }
+
+  if (lastDone) return lastDone;
+  throw new Error('请求未返回结果');
+}
+
+function resetProgressList() {
+  progressItems = new Map();
+  progressList.innerHTML = '';
+  progressList.hidden = true;
+}
+
+function formatTargetLabel(target, index) {
+  if (!target) return `第 ${index + 1} 条`;
+  const url = target.navigationUrl || target.canonicalUrl || '';
+  if (!url) return `第 ${index + 1} 条`;
+  return url.length > 48 ? `${url.slice(0, 45)}...` : url;
+}
+
+function renderProgressList(targets = []) {
+  progressItems = new Map();
+  progressList.innerHTML = '';
+  if (!Array.isArray(targets) || targets.length === 0) {
+    progressList.hidden = true;
+    return;
+  }
+  targets.forEach((target, index) => {
+    const item = document.createElement('div');
+    item.className = 'progress-item';
+    item.dataset.status = 'pending';
+    item.innerHTML = `
+      <div class="progress-head">
+        <span class="progress-title">${formatTargetLabel(target, index)}</span>
+        <span class="progress-state">等待</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill"></div>
+      </div>
+    `;
+    progressItems.set(index, item);
+    progressList.appendChild(item);
+  });
+  progressList.hidden = false;
+}
+
+function updateProgressItem(index, status, payload = {}) {
+  const item = progressItems.get(index);
+  if (!item) return;
+  item.dataset.status = status;
+  const state = item.querySelector('.progress-state');
+  const title = item.querySelector('.progress-title');
+  if (state) {
+    if (status === 'running') state.textContent = '运行中';
+    if (status === 'success') state.textContent = '完成';
+    if (status === 'failed') state.textContent = '失败';
+    if (status === 'pending') state.textContent = '等待';
+  }
+  if (title) {
+    const label = payload.label || title.textContent;
+    title.textContent = label;
+  }
+  if (payload.error) {
+    item.title = payload.error;
+  }
 }
 
 function readNumber(input, fallback) {
@@ -117,20 +284,6 @@ function applyConfigToForm(config) {
   runtimeMaxImages.value = cfg.runtime?.maxImagesPerNote ?? '';
   uiShowRaw.checked = cfg.ui?.showRawReport !== false;
   updateRawReportVisibility(cfg);
-}
-
-function renderMeta(config) {
-  resultMeta.innerHTML = '';
-  const items = [];
-  if (config?.paths?.saveLinksOutputRoot) items.push(`链接输出：${config.paths.saveLinksOutputRoot}`);
-  if (config?.paths?.collectionOutputRoot) items.push(`收藏输出：${config.paths.collectionOutputRoot}`);
-  if (items.length === 0) return;
-  items.forEach((text) => {
-    const chip = document.createElement('span');
-    chip.className = 'chip';
-    chip.textContent = text;
-    resultMeta.appendChild(chip);
-  });
 }
 
 function renderSummary(report) {
@@ -201,12 +354,21 @@ function renderReport(payload) {
   renderText(JSON.stringify(report, null, 2));
 }
 
+function formatResultLabel(result) {
+  if (!result) return '';
+  if (result.filepath) {
+    const parts = String(result.filepath).split(/[/\\\\]/);
+    return parts[parts.length - 1];
+  }
+  return result.canonicalUrl || result.navigationUrl || result.input || '';
+}
+
 async function loadUiConfig() {
   setConfigStatus('正在加载配置...', 'muted');
   const payload = await requestJson('/api/ui-config', { method: 'GET' });
   currentConfig = payload.config || {};
   applyConfigToForm(currentConfig);
-  renderMeta(currentConfig);
+  renderSummaryRow(currentConfig);
   setConfigStatus('配置已加载', 'ok');
 }
 
@@ -218,8 +380,9 @@ configForm.addEventListener('submit', async (event) => {
     const payload = await requestJson('/api/ui-config', { body: { config } });
     currentConfig = payload.config || config;
     applyConfigToForm(currentConfig);
-    renderMeta(currentConfig);
+    renderSummaryRow(currentConfig);
     setConfigStatus('配置已保存', 'ok');
+    closeSettings();
   } catch (error) {
     setConfigStatus(error.message || '保存失败', 'error');
   }
@@ -233,6 +396,15 @@ configReload.addEventListener('click', async () => {
   }
 });
 
+openSettingsButton.addEventListener('click', () => openSettings());
+closeSettingsButton.addEventListener('click', () => closeSettings());
+settingsOverlay.addEventListener('click', () => closeSettings());
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !settingsModal.hidden) {
+    closeSettings();
+  }
+});
+
 linksClear.addEventListener('click', () => {
   linksText.value = '';
 });
@@ -241,12 +413,32 @@ linksForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   setBusy(true, '正在顺序保存链接...');
   renderText('任务已提交，等待返回...');
+  resetProgressList();
 
   try {
-    const payload = await requestJson('/api/save-links', {
-      body: {
-        text: linksText.value,
-        uiConfig: readConfigFromForm()
+    const uiConfig = readConfigFromForm();
+    const payload = await requestNdjson('/api/save-links-stream', {
+      text: linksText.value,
+      uiConfig
+    }, {
+      onEvent: (message) => {
+        if (message.type === 'start') {
+          renderProgressList(message.targets || []);
+          statusText.textContent = `准备处理 ${message.total || 0} 条`;
+        }
+        if (message.type === 'tick') {
+          updateProgressItem(message.index, 'running');
+          statusText.textContent = `正在处理第 ${Number(message.index) + 1}/${message.total || 0} 条`;
+        }
+        if (message.type === 'progress') {
+          const result = message.result || {};
+          const status = result.status === 'failed' ? 'failed' : 'success';
+          const label = formatResultLabel(result);
+          updateProgressItem(message.index, status, {
+            label: label || undefined,
+            error: result.error || ''
+          });
+        }
       }
     });
     statusText.textContent = '链接保存完成';
@@ -262,6 +454,7 @@ linksForm.addEventListener('submit', async (event) => {
 collectionSubmit.addEventListener('click', async () => {
   setBusy(true, '正在执行收藏导出...');
   renderText('任务已提交，等待返回...');
+  resetProgressList();
 
   try {
     const payload = await requestJson('/api/save-collection', {

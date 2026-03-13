@@ -2,7 +2,14 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { spawn } = require('child_process');
-const { saveLinksText } = require('./save_note');
+const {
+  buildSuccessfulSaveSummaryItem,
+  formatSaveNoteError,
+  getNavigationUrl,
+  resolveRunModes,
+  saveLinksText,
+  saveMode
+} = require('./save_note');
 const { runTaskPipeline } = require('./lib/pipeline');
 const { resolveProjectPaths } = require('./lib/config');
 const { loadUiConfig, mergeUiConfig, saveUiConfig } = require('./lib/ui_config');
@@ -157,6 +164,69 @@ function resolveUiConfig(configPath, payload) {
   return mergeUiConfig(stored, incoming);
 }
 
+function sendNdjson(response, payload) {
+  response.write(`${JSON.stringify(payload)}\n`);
+}
+
+async function runSaveLinksWithProgress({ text, uiConfig, onEvent }) {
+  const task = buildNoteSaveTask({ input: text, source: 'ui' });
+  assertValidTask(task);
+
+  const modes = await resolveRunModes({ mode: 'input', input: text });
+  const targets = modes.map((mode, index) => ({
+    index,
+    noteId: mode.noteId || '',
+    canonicalUrl: mode.canonicalUrl || '',
+    navigationUrl: getNavigationUrl(mode)
+  }));
+
+  if (onEvent) {
+    onEvent({ type: 'start', total: modes.length, targets });
+  }
+
+  const results = [];
+  for (let index = 0; index < modes.length; index += 1) {
+    const mode = modes[index];
+    const baseResult = {
+      index,
+      noteId: mode.noteId || '',
+      input: mode.input || getNavigationUrl(mode),
+      canonicalUrl: mode.canonicalUrl || '',
+      navigationUrl: getNavigationUrl(mode)
+    };
+
+    if (onEvent) {
+      onEvent({ type: 'tick', index, total: modes.length, target: targets[index] });
+    }
+
+    try {
+      const saved = await saveMode(mode, {
+        task,
+        source: 'ui',
+        outputRoot: uiConfig.paths.saveLinksOutputRoot || undefined,
+        imagesRoot: uiConfig.paths.saveLinksImagesRoot || undefined,
+        conflictStrategy: uiConfig.naming.conflictStrategy,
+        maxTitleLength: uiConfig.naming.maxTitleLength,
+        uiRuntime: uiConfig.runtime
+      });
+      const item = buildSuccessfulSaveSummaryItem(baseResult, saved);
+      results.push(item);
+      if (onEvent) onEvent({ type: 'progress', index, total: modes.length, result: item });
+    } catch (error) {
+      const item = {
+        ...baseResult,
+        status: 'failed',
+        error: formatSaveNoteError(error)
+      };
+      results.push(item);
+      if (onEvent) onEvent({ type: 'progress', index, total: modes.length, result: item });
+    }
+  }
+
+  const report = buildTaskSummary(results, { includeWarnings: true });
+  return { task, report };
+}
+
 async function runCollectionExport(task, options = {}) {
   const env = buildCollectionEnv(options.overrides || {});
   if (task) {
@@ -232,6 +302,45 @@ function createUiServer({
         const merged = resolveUiConfig(uiConfigPath, payload);
         saveUiConfig({ configPath: uiConfigPath, payload: merged });
         sendJson(response, 200, { ok: true, config: merged });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/save-links-stream') {
+        response.writeHead(200, {
+          'Content-Type': 'application/x-ndjson; charset=utf-8',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive'
+        });
+
+        try {
+          const payload = await readJsonBody(request);
+          const text = String(payload.text || '').trim();
+          if (!text) {
+            sendNdjson(response, {
+              type: 'error',
+              error: '请输入包含小红书链接的文本'
+            });
+            response.end();
+            return;
+          }
+
+          const uiConfig = resolveUiConfig(uiConfigPath, payload);
+          await runExclusive('save-links', async () => {
+            const { task, report } = await runSaveLinksWithProgress({
+              text,
+              uiConfig,
+              onEvent: (event) => sendNdjson(response, event)
+            });
+            sendNdjson(response, { type: 'done', task: task.type, report });
+          });
+        } catch (error) {
+          sendNdjson(response, {
+            type: 'error',
+            error: error.message || 'Internal Server Error'
+          });
+        } finally {
+          response.end();
+        }
         return;
       }
 
