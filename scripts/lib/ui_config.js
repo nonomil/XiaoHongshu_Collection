@@ -20,6 +20,14 @@ const DEFAULT_UI_CONFIG = {
     visionOcrTimeoutMs: 60000,
     maxImagesPerNote: 12
   },
+  pushbullet: {
+    enabled: false,
+    accessToken: '',
+    lastModified: 0
+  },
+  inbox: {
+    path: 'data/inbox_links.jsonl'
+  },
   ui: {
     showRawReport: true
   }

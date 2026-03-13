@@ -19,6 +19,10 @@ test('loadUiConfig returns defaults when missing', () => {
   assert.equal(cfg._missing, true);
   assert.ok(cfg.paths);
   assert.equal(cfg.naming.conflictStrategy, 'overwrite');
+  assert.equal(cfg.pushbullet.enabled, false);
+  assert.equal(cfg.pushbullet.accessToken, '');
+  assert.equal(cfg.pushbullet.lastModified, 0);
+  assert.match(cfg.inbox.path, /data[\\/]+inbox_links\.jsonl$/);
 });
 
 test('mergeUiConfig overlays user values', () => {
