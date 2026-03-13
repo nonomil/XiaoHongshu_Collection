@@ -10,7 +10,7 @@
 - [ ] 确认收件箱落盘路径与格式（JSONL）
 
 ## Phase 1｜配置与数据结构
-- [ ] 在 `ui_config.json` 结构中增加 `pushbullet.*` 与 `inbox.path`
+ - [x] 在 `ui_config.json` 结构中增加 `pushbullet.*` 与 `inbox.path`
 - [ ] 新增 `InboxItem` 结构定义（source/url/title/timestamp/raw）
  - [x] 新增 `InboxStore`（写入、去重、读取）
 
