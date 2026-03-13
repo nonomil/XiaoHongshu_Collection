@@ -12,7 +12,7 @@
 ## Phase 1｜配置与数据结构
 - [ ] 在 `ui_config.json` 结构中增加 `pushbullet.*` 与 `inbox.path`
 - [ ] 新增 `InboxItem` 结构定义（source/url/title/timestamp/raw）
-- [ ] 新增 `InboxStore`（写入、去重、读取）
+ - [x] 新增 `InboxStore`（写入、去重、读取）
 
 ## Phase 2｜Provider 设计与实现（可扩展）
 - [ ] 定义 `InboxProvider` 接口（pull/normalize）
