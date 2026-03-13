@@ -16,9 +16,9 @@
 
 ## Phase 2｜Provider 设计与实现（可扩展）
 - [ ] 定义 `InboxProvider` 接口（pull/normalize）
-- [ ] 实现 `PushbulletProvider`
-- [ ] 支持 `modified_after` 增量拉取
-- [ ] 解析 push 内容中 URL（包含正文内 URL 提取）
+ - [x] 实现 `PushbulletProvider`
+ - [x] 支持 `modified_after` 增量拉取
+ - [x] 解析 push 内容中 URL（包含正文内 URL 提取）
 
 ## Phase 3｜后端 API + CLI
 - [ ] 新增 API：`POST /api/inbox/sync`
