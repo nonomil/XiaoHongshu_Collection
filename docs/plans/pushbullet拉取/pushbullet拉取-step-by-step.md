@@ -6,7 +6,7 @@
 
 ## Phase 0｜准备与约束
 - [ ] 确认功能开关：默认不开启，需配置 Token 才启用
-- [ ] 确认默认冲突策略：UI + CLI 改为覆盖（overwrite）
+ - [x] 确认默认冲突策略：UI + CLI 改为覆盖（overwrite）
 - [ ] 确认收件箱落盘路径与格式（JSONL）
 
 ## Phase 1｜配置与数据结构
