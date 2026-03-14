@@ -1,12 +1,12 @@
 const path = require('path');
 
 const { resolveProjectPaths } = require('./config');
-const { loadUiConfig, saveUiConfig } = require('./ui_config');
 const { createInboxStore } = require('./inbox_store');
 const { createPushbulletProvider } = require('./inbox_pushbullet');
+const { loadPushbulletConfig, savePushbulletConfig } = require('./pushbullet_config');
 
 const PATHS = resolveProjectPaths(path.resolve(__dirname, '..', '..'));
-const DEFAULT_UI_CONFIG_PATH = path.join(PATHS.configDir, 'ui.json');
+const DEFAULT_PUSHBULLET_CONFIG_PATH = path.join(PATHS.configDir, 'pushbullet.json');
 
 function resolveInboxPath(projectDir, inboxPath) {
   if (!inboxPath) {
@@ -17,34 +17,32 @@ function resolveInboxPath(projectDir, inboxPath) {
 }
 
 async function syncInbox({
-  uiConfigPath = DEFAULT_UI_CONFIG_PATH,
-  uiConfig
+  pushbulletConfigPath = DEFAULT_PUSHBULLET_CONFIG_PATH,
+  providerFactory,
+  storeFactory
 } = {}) {
-  const config = uiConfig || loadUiConfig({ configPath: uiConfigPath });
-  const pushbullet = config.pushbullet || {};
+  const config = loadPushbulletConfig({ configPath: pushbulletConfigPath });
 
-  if (!pushbullet.enabled) {
+  if (!config.enabled) {
     throw new Error('Pushbullet sync is disabled.');
   }
-  if (!pushbullet.accessToken) {
+  if (!config.accessToken) {
     throw new Error('Pushbullet access token is required.');
   }
 
-  const provider = createPushbulletProvider({ accessToken: pushbullet.accessToken });
-  const since = Number(pushbullet.lastModified || 0);
+  const provider = providerFactory
+    ? providerFactory(config)
+    : createPushbulletProvider({ accessToken: config.accessToken });
+  const since = Number(config.lastModified || 0);
   const { items, nextModified } = await provider.pull({ since });
-  const inboxPath = resolveInboxPath(PATHS.projectDir, config.inbox?.path);
-  const store = createInboxStore({ filePath: inboxPath });
+  const inboxPath = resolveInboxPath(PATHS.projectDir, config.inboxPath);
+  const store = storeFactory
+    ? storeFactory(config)
+    : createInboxStore({ filePath: inboxPath });
   const { added, skipped } = await store.append(items);
 
-  const updatedConfig = {
-    ...config,
-    pushbullet: {
-      ...pushbullet,
-      lastModified: nextModified
-    }
-  };
-  saveUiConfig({ configPath: uiConfigPath, payload: updatedConfig });
+  const updatedConfig = { ...config, lastModified: nextModified };
+  savePushbulletConfig({ configPath: pushbulletConfigPath, payload: updatedConfig });
 
   return {
     added,
