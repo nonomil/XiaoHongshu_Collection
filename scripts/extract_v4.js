@@ -5,10 +5,11 @@ const path = require('path');
 const { buildAccountKey } = require('./ai/account');
 const { parseUserMeResponse } = require('./ai/account_detect');
 const { buildAccountKeyFromDom } = require('./ai/account_dom');
-const { resolveCollectionRawPath } = require('./lib/collection_paths');
+const { resolveCollectionRawPath, resolveCollectionOutputRoot } = require('./lib/collection_paths');
 const { assertValidTask, buildCollectionTask } = require('./lib/task');
 const { runTaskPipeline } = require('./lib/pipeline');
 const { logInfo, logWarn, logError } = require('./lib/logger');
+const { resolveNumberEnv, resolveDelayMs, retryAsync } = require('./lib/async_control');
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
 const RAW_PATH = resolveCollectionRawPath({ projectDir: PROJECT_DIR });
@@ -17,6 +18,12 @@ const BOARDS = [
   { name: 'AI', href: 'https://www.xiaohongshu.com/board/699c2c9c0000000025031008' },
   { name: '笔记', href: 'https://www.xiaohongshu.com/board/699c2baa000000002600ba5b' }
 ];
+
+const COLLECTION_THROTTLE_MS = resolveNumberEnv(process.env.XHS_COLLECTION_THROTTLE_MS, 1200);
+const COLLECTION_THROTTLE_JITTER_MS = resolveNumberEnv(process.env.XHS_COLLECTION_THROTTLE_JITTER_MS, 600);
+const COLLECTION_RETRY_COUNT = resolveNumberEnv(process.env.XHS_COLLECTION_RETRY_COUNT, 2);
+const COLLECTION_RETRY_BASE_MS = resolveNumberEnv(process.env.XHS_COLLECTION_RETRY_BASE_MS, 600);
+const COLLECTION_RETRY_MAX_MS = resolveNumberEnv(process.env.XHS_COLLECTION_RETRY_MAX_MS, 3000);
 
 function getTabWsUrl() {
   return new Promise((resolve, reject) => {
@@ -53,6 +60,56 @@ function send(ws, method, params = {}) {
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function buildCollectionThrottle({
+  throttleMs = COLLECTION_THROTTLE_MS,
+  throttleJitterMs = COLLECTION_THROTTLE_JITTER_MS,
+  wait = sleep,
+  rng = Math.random
+} = {}) {
+  return async () => {
+    const delay = resolveDelayMs({ baseMs: throttleMs, jitterMs: throttleJitterMs, rng });
+    if (delay > 0) {
+      await wait(delay);
+    }
+    return delay;
+  };
+}
+
+async function retryCollectionTask(task, {
+  retries = COLLECTION_RETRY_COUNT,
+  baseDelayMs = COLLECTION_RETRY_BASE_MS,
+  maxDelayMs = COLLECTION_RETRY_MAX_MS,
+  jitterMs = COLLECTION_THROTTLE_JITTER_MS,
+  wait = sleep,
+  onRetry
+} = {}) {
+  return retryAsync(task, {
+    retries,
+    baseDelayMs,
+    maxDelayMs,
+    jitterMs,
+    wait,
+    onRetry
+  });
+}
+
+function buildNoteFailureEntry({ boardName, noteId, href, error } = {}) {
+  return {
+    type: 'note',
+    board: boardName || '',
+    noteId: noteId || '',
+    href: href || '',
+    error: error || 'unknown'
+  };
+}
+
+function ensureLoggedIn(account) {
+  const uid = account?.uid || '';
+  const nickname = account?.nickname || '';
+  if (uid && nickname) return true;
+  throw new Error('未检测到登录账号，请在 Chrome 调试窗口登录后重试。');
+}
 
 async function getAccountInfo(ws) {
   const result = await send(ws, 'Runtime.evaluate', {
@@ -174,10 +231,15 @@ async function collectCollectionData() {
     } catch (e) {
       logWarn(`Account detection failed: ${e.message}`);
     }
+    ensureLoggedIn(account);
 
     for (const board of BOARDS) {
       try {
-        const notes = await processBoard(ws, board, existingNoteIds, account);
+        const notes = await processBoard(ws, board, existingNoteIds, account, {
+          failed,
+          throttle: buildCollectionThrottle(),
+          retryTask: retryCollectionTask
+        });
         const current = allResults[board.name] || [];
         const merged = [...current];
         for (const note of notes) {
@@ -198,6 +260,54 @@ async function collectCollectionData() {
   } finally {
     ws.close();
   }
+}
+
+function formatTimestamp(now = new Date()) {
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+}
+
+function buildCollectionReportPath({ outputRoot, now } = {}) {
+  const root = outputRoot || resolveCollectionOutputRoot({ projectDir: PROJECT_DIR });
+  const dir = path.join(root, '_reports');
+  return path.join(dir, `collection-export-${formatTimestamp(now)}.md`);
+}
+
+function buildCollectionReportMarkdown({ rawPath, total, failures, failed } = {}) {
+  const lines = [];
+  lines.push('# 收藏导出报告');
+  lines.push('');
+  lines.push(`- 时间: ${new Date().toLocaleString('zh-CN')}`);
+  if (rawPath) lines.push(`- 原始数据: ${rawPath}`);
+  lines.push(`- 总数: ${Number(total || 0)}`);
+  lines.push(`- 失败: ${Number(failures || 0)}`);
+  lines.push('');
+  if (Array.isArray(failed) && failed.length > 0) {
+    lines.push('## 失败明细');
+    failed.forEach((item) => {
+      const board = item.board || '';
+      const noteId = item.noteId || '';
+      const href = item.href || '';
+      const error = item.error || '';
+      lines.push(`- [${board}] ${noteId} ${href} ${error}`.trim());
+    });
+    lines.push('');
+  }
+  lines.push('## 合规建议');
+  lines.push('- 重新登录后重试');
+  lines.push('- 降低采集频率，稍后重试');
+  lines.push('- 若账号异常，等待恢复或切换账号');
+  lines.push('');
+  return lines.join('\n');
+}
+
+function writeCollectionReport({ outputRoot, rawPath, total, failures, failed, now } = {}) {
+  const reportPath = buildCollectionReportPath({ outputRoot, now });
+  const reportDir = path.dirname(reportPath);
+  fs.mkdirSync(reportDir, { recursive: true });
+  const markdown = buildCollectionReportMarkdown({ rawPath, total, failures, failed });
+  fs.writeFileSync(reportPath, markdown, 'utf-8');
+  return reportPath;
 }
 
 function persistCollectionData(payload) {
@@ -420,10 +530,13 @@ function setupNetworkAccountCapture(ws, accountState) {
   return () => ws.off('message', handler);
 }
 
-async function processBoard(ws, board, existingNoteIds, account) {
+async function processBoard(ws, board, existingNoteIds, account, options = {}) {
   console.log(`\n=== Board: ${board.name} ===`);
   await send(ws, 'Page.navigate', { url: board.href });
   await sleep(4000);
+  const throttle = options.throttle || buildCollectionThrottle(options);
+  const retryTask = options.retryTask || retryCollectionTask;
+  const failed = options.failed || null;
 
   if (!account.nickname) {
     try {
@@ -461,74 +574,103 @@ async function processBoard(ws, board, existingNoteIds, account) {
     const card = cards[i];
     if (card.noteId && existingNoteIds.has(card.noteId)) {
       console.log(`  [${i + 1}/${cards.length}] Skip existing noteId ${card.noteId}`);
+      if (i < cards.length - 1) {
+        await throttle();
+      }
       continue;
     }
-    console.log(`  [${i + 1}/${cards.length}] Clicking card at (${card.x}, ${card.y}) - ${card.title.substring(0, 30)}`);
-    console.log(`    Href: ${card.href}`);
+    try {
+      console.log(`  [${i + 1}/${cards.length}] Clicking card at (${card.x}, ${card.y}) - ${card.title.substring(0, 30)}`);
+      console.log(`    Href: ${card.href}`);
 
-    // Navigate back to board if not on it
-    const urlCheck = await send(ws, 'Runtime.evaluate', {
-      expression: 'location.href', returnByValue: true
-    });
-    if (!urlCheck.result.value.includes('/board/')) {
-      await send(ws, 'Page.navigate', { url: board.href });
-      await sleep(3500);
-      // Re-get positions since page reloaded
-      const newCards = await getCardPositions(ws);
-      if (newCards[i]) {
-        card.x = newCards[i].x;
-        card.y = newCards[i].y;
-      }
-    }
-
-    // Simulate real mouse click on the card
-    await clickAtPosition(ws, card.x, card.y);
-    await sleep(3500);
-
-    // Check what happened - modal or navigation?
-    let detail = await extractFromModal(ws);
-    console.log(`    URL: ${detail.url}`);
-    console.log(`    Modal found: ${detail.found}`);
-    console.log(`    Title: ${detail.title || '(empty)'}`);
-    console.log(`    Content: ${(detail.content || '').substring(0, 60) || '(empty)'}`);
-    console.log(`    Debug classes: ${detail.debugClasses.slice(0, 5).join(', ')}`);
-
-    if (!detail.title && !detail.content) {
-      console.log('    Retry: click anchor via JS');
-      await clickCardAnchor(ws, card.index);
-      await sleep(3500);
-      detail = await extractFromModal(ws);
-      console.log(`    Retry Title: ${detail.title || '(empty)'}`);
-      console.log(`    Retry Content: ${(detail.content || '').substring(0, 60) || '(empty)'}`);
-      const linkInfo = await getCardLinkInfo(ws, card.index);
-      if (linkInfo) {
-        console.log(`    Link data-xsec-token: ${linkInfo.dataXsecToken || '(none)'}`);
-      }
-    }
-
-    if (detail.title || detail.content) {
-      const currentAccountKey = buildAccountKey({ nickname: account.nickname, uid: account.uid });
-      notes.push({
-        title: detail.title,
-        content: detail.content,
-        author: detail.author,
-        authorLink: '',
-        date: detail.date,
-        tags: detail.tags,
-        images: detail.images,
-        noteUrl: detail.url,
-        noteId: card.noteId,
-        collection: board.name,
-        accountKey: currentAccountKey,
-        accountUid: account.uid,
-        accountNickname: account.nickname
+      // Navigate back to board if not on it
+      const urlCheck = await send(ws, 'Runtime.evaluate', {
+        expression: 'location.href', returnByValue: true
       });
+      if (!urlCheck.result.value.includes('/board/')) {
+        await send(ws, 'Page.navigate', { url: board.href });
+        await sleep(3500);
+        // Re-get positions since page reloaded
+        const newCards = await getCardPositions(ws);
+        if (newCards[i]) {
+          card.x = newCards[i].x;
+          card.y = newCards[i].y;
+        }
+      }
+
+      // Simulate real mouse click on the card
+      await clickAtPosition(ws, card.x, card.y);
+      await sleep(3500);
+
+      // Check what happened - modal or navigation?
+      let detail = await extractFromModal(ws);
+      console.log(`    URL: ${detail.url}`);
+      console.log(`    Modal found: ${detail.found}`);
+      console.log(`    Title: ${detail.title || '(empty)'}`);
+      console.log(`    Content: ${(detail.content || '').substring(0, 60) || '(empty)'}`);
+      console.log(`    Debug classes: ${detail.debugClasses.slice(0, 5).join(', ')}`);
+
+      if (!detail.title && !detail.content) {
+        detail = await retryTask(async () => {
+          console.log('    Retry: click anchor via JS');
+          await clickCardAnchor(ws, card.index);
+          await sleep(3500);
+          const nextDetail = await extractFromModal(ws);
+          console.log(`    Retry Title: ${nextDetail.title || '(empty)'}`);
+          console.log(`    Retry Content: ${(nextDetail.content || '').substring(0, 60) || '(empty)'}`);
+          if (!nextDetail.title && !nextDetail.content) {
+            throw new Error('note detail empty');
+          }
+          return nextDetail;
+        }, {
+          onRetry: (error, attempt, delayMs) => {
+            logWarn(`    Retry ${attempt} after ${delayMs}ms: ${error.message || error}`);
+          }
+        });
+        const linkInfo = await getCardLinkInfo(ws, card.index);
+        if (linkInfo) {
+          console.log(`    Link data-xsec-token: ${linkInfo.dataXsecToken || '(none)'}`);
+        }
+      }
+
+      if (detail.title || detail.content) {
+        const currentAccountKey = buildAccountKey({ nickname: account.nickname, uid: account.uid });
+        notes.push({
+          title: detail.title,
+          content: detail.content,
+          author: detail.author,
+          authorLink: '',
+          date: detail.date,
+          tags: detail.tags,
+          images: detail.images,
+          noteUrl: detail.url,
+          noteId: card.noteId,
+          collection: board.name,
+          accountKey: currentAccountKey,
+          accountUid: account.uid,
+          accountNickname: account.nickname
+        });
+      }
+
+      // Press Escape to close modal if it opened
+      await send(ws, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      await sleep(600);
+    } catch (error) {
+      const message = error && error.message ? error.message : 'unknown';
+      logError(`  [${i + 1}/${cards.length}] Note failed: ${message}. 建议重新登录并降低采集频率后重试。`);
+      if (failed) {
+        failed.push(buildNoteFailureEntry({
+          boardName: board.name,
+          noteId: card.noteId,
+          href: card.href,
+          error: message
+        }));
+      }
     }
 
-    // Press Escape to close modal if it opened
-    await send(ws, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
-    await sleep(1000);
-    await sleep(1000 + Math.random() * 1500);
+    if (i < cards.length - 1) {
+      await throttle();
+    }
   }
 
   return notes;
@@ -556,4 +698,19 @@ async function main(task = buildCollectionTask({ source: 'cli' })) {
   return pipeline.report;
 }
 
-main().catch(e => console.error('Fatal error:', e.message));
+if (require.main === module) {
+  main().catch(e => console.error('Fatal error:', e.message));
+}
+
+module.exports = {
+  buildCollectionThrottle,
+  retryCollectionTask,
+  buildNoteFailureEntry,
+  ensureLoggedIn,
+  buildCollectionReportPath,
+  buildCollectionReportMarkdown,
+  writeCollectionReport,
+  main,
+  processBoard,
+  collectCollectionData
+};
