@@ -9,6 +9,11 @@ const resultSummary = document.getElementById('result-summary');
 const rawReport = document.getElementById('raw-report');
 const progressList = document.getElementById('progress-list');
 const summaryRow = document.getElementById('summary-row');
+const errorBanner = document.getElementById('error-banner');
+const errorTitle = document.getElementById('error-title');
+const errorMessage = document.getElementById('error-message');
+const errorHints = document.getElementById('error-hints');
+const errorDismiss = document.getElementById('error-dismiss');
 
 const openSettingsButton = document.getElementById('open-settings');
 const closeSettingsButton = document.getElementById('close-settings');
@@ -55,6 +60,32 @@ function setConfigStatus(message, tone = 'muted') {
 }
 
 const helpers = window.XhsUiHelpers || {};
+
+function clearErrorBanner() {
+  if (errorBanner) errorBanner.hidden = true;
+  if (errorTitle) errorTitle.textContent = '';
+  if (errorMessage) errorMessage.textContent = '';
+  if (errorHints) errorHints.innerHTML = '';
+}
+
+function renderErrorBanner(message) {
+  const display = helpers.buildErrorDisplay
+    ? helpers.buildErrorDisplay(message)
+    : { title: '失败', message, hints: [] };
+  if (errorTitle) errorTitle.textContent = display.title || '失败';
+  if (errorMessage) {
+    errorMessage.textContent = display.message || '未知错误，请查看日志或稍后重试。';
+  }
+  if (errorHints) {
+    errorHints.innerHTML = '';
+    (display.hints || []).forEach((hint) => {
+      const item = document.createElement('li');
+      item.textContent = hint;
+      errorHints.appendChild(item);
+    });
+  }
+  if (errorBanner) errorBanner.hidden = false;
+}
 
 function renderSummaryRow(config) {
   summaryRow.innerHTML = '';
@@ -404,6 +435,9 @@ document.addEventListener('keydown', (event) => {
     closeSettings();
   }
 });
+if (errorDismiss) {
+  errorDismiss.addEventListener('click', () => clearErrorBanner());
+}
 
 linksClear.addEventListener('click', () => {
   linksText.value = '';
@@ -414,6 +448,7 @@ linksForm.addEventListener('submit', async (event) => {
   setBusy(true, '正在顺序保存链接...');
   renderText('任务已提交，等待返回...');
   resetProgressList();
+  clearErrorBanner();
 
   try {
     const uiConfig = readConfigFromForm();
@@ -446,6 +481,7 @@ linksForm.addEventListener('submit', async (event) => {
   } catch (error) {
     statusText.textContent = '链接保存失败';
     renderText(error.message);
+    renderErrorBanner(error.message || '请求失败');
   } finally {
     setBusy(false, statusText.textContent);
   }
@@ -455,6 +491,7 @@ collectionSubmit.addEventListener('click', async () => {
   setBusy(true, '正在执行收藏导出...');
   renderText('任务已提交，等待返回...');
   resetProgressList();
+  clearErrorBanner();
 
   try {
     const payload = await requestJson('/api/save-collection', {
@@ -465,6 +502,7 @@ collectionSubmit.addEventListener('click', async () => {
   } catch (error) {
     statusText.textContent = '收藏导出失败';
     renderText(error.message);
+    renderErrorBanner(error.message || '请求失败');
   } finally {
     setBusy(false, statusText.textContent);
   }
