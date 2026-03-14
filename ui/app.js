@@ -4,6 +4,7 @@ const linksSubmit = document.getElementById('links-submit');
 const linksClear = document.getElementById('links-clear');
 const collectionSubmit = document.getElementById('collection-submit');
 const inboxSyncButton = document.getElementById('inbox-sync');
+const inboxSyncCardButton = document.getElementById('inbox-sync-card');
 const statusText = document.getElementById('status-text');
 const resultOutput = document.getElementById('result-output');
 const resultSummary = document.getElementById('result-summary');
@@ -558,7 +559,7 @@ collectionSubmit.addEventListener('click', async () => {
   }
 });
 
-inboxSyncButton.addEventListener('click', async () => {
+async function runInboxSync() {
   setBusy(true, '正在同步收件箱...');
   renderText('任务已提交，等待返回...');
   resetProgressList();
@@ -575,7 +576,12 @@ inboxSyncButton.addEventListener('click', async () => {
   } finally {
     setBusy(false, statusText.textContent);
   }
-});
+}
+
+inboxSyncButton.addEventListener('click', runInboxSync);
+if (inboxSyncCardButton) {
+  inboxSyncCardButton.addEventListener('click', runInboxSync);
+}
 
 loadUiConfig().catch((error) => {
   setConfigStatus(error.message || '配置加载失败', 'error');
