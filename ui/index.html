@@ -18,6 +18,7 @@
         <p class="subtitle">面向日常使用的本地工具：粘贴链接或导出收藏，一键保存到本地。</p>
       </div>
       <div class="topbar-actions">
+        <button id="inbox-sync" class="button secondary" type="button">同步收件箱</button>
         <button id="open-settings" class="button ghost" type="button">设置</button>
       </div>
     </header>
@@ -161,6 +162,22 @@
         <label class="field">
           <span>每条笔记最多 OCR 图片数</span>
           <input id="runtime-max-images" type="number" min="1" max="50" step="1" placeholder="默认 12">
+        </label>
+      </div>
+
+      <div class="panel-section">
+        <h3>收件箱同步</h3>
+        <label class="toggle">
+          <input id="pushbullet-enabled" type="checkbox">
+          <span>启用 Pushbullet</span>
+        </label>
+        <label class="field">
+          <span>Pushbullet Access Token</span>
+          <input id="pushbullet-token" type="password" placeholder="在 Pushbullet 账号设置中获取">
+        </label>
+        <label class="field">
+          <span>收件箱文件路径</span>
+          <input id="inbox-path" type="text" placeholder="默认：data/inbox_links.jsonl">
         </label>
       </div>
 

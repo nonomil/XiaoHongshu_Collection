@@ -13,6 +13,7 @@ const {
 const { runTaskPipeline } = require('./lib/pipeline');
 const { resolveProjectPaths } = require('./lib/config');
 const { loadUiConfig, mergeUiConfig, saveUiConfig } = require('./lib/ui_config');
+const { syncInbox } = require('./lib/inbox_sync');
 const { logError, logInfo } = require('./lib/logger');
 const { buildTaskResult, buildTaskSummary } = require('./lib/report');
 const {
@@ -263,6 +264,7 @@ async function runCollectionExport(task, options = {}) {
 function createUiServer({
   saveLinksText: saveLinks = saveLinksText,
   runCollectionExport: runCollection = runCollectionExport,
+  runInboxSync: runInbox = syncInbox,
   uiDir = UI_DIR,
   uiConfigPath = DEFAULT_UI_CONFIG_PATH
 } = {}) {
@@ -400,6 +402,20 @@ function createUiServer({
           ok: true,
           task: task.type,
           report
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/inbox/sync') {
+        const payload = await readJsonBody(request);
+        const uiConfig = resolveUiConfig(uiConfigPath, payload);
+        const result = await runExclusive('inbox-sync', () => runInbox({
+          uiConfigPath,
+          uiConfig
+        }));
+        sendJson(response, 200, {
+          ok: true,
+          report: result
         });
         return;
       }

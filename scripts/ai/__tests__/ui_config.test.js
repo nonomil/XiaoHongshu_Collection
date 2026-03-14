@@ -18,6 +18,9 @@ test('loadUiConfig returns defaults when missing', () => {
   const cfg = loadUiConfig({ configPath: cfgPath });
   assert.equal(cfg._missing, true);
   assert.ok(cfg.paths);
+  assert.equal(cfg.naming.conflictStrategy, 'overwrite');
+  assert.equal(cfg.pushbullet, undefined);
+  assert.equal(cfg.inbox, undefined);
 });
 
 test('mergeUiConfig overlays user values', () => {
