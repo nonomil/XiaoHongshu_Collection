@@ -5,6 +5,7 @@ const {
   buildCollectionThrottle,
   buildCollectionReportMarkdown,
   buildCollectionReportPath,
+  writeCollectionReport,
   retryCollectionTask,
   buildNoteFailureEntry,
   ensureLoggedIn
@@ -104,4 +105,27 @@ test('ensureLoggedIn throws when account is missing', () => {
 
 test('ensureLoggedIn passes when account exists', () => {
   assert.equal(ensureLoggedIn({ uid: 'u1', nickname: 'nick' }), true);
+});
+
+test('writeCollectionReport writes markdown report', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-report-'));
+  const reportPath = writeCollectionReport({
+    outputRoot: tmp,
+    rawPath: path.join(tmp, 'raw_notes.json'),
+    total: 1,
+    failures: 1,
+    failed: [{
+      board: 'AI',
+      noteId: 'n1',
+      href: 'https://xhs.com/explore/n1',
+      error: 'note detail empty'
+    }],
+    now: new Date(2026, 2, 15, 16, 9, 10)
+  });
+  assert.equal(fs.existsSync(reportPath), true);
+  const content = fs.readFileSync(reportPath, 'utf-8');
+  assert.match(content, /note detail empty/);
 });

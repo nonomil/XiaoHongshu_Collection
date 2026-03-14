@@ -323,7 +323,17 @@ function persistCollectionData(payload) {
   }
   console.log(`Total: ${total} notes, ${failed.length} failures`);
 
-  return { rawPath: RAW_PATH, total, failures: failed.length };
+  const outputRoot = resolveCollectionOutputRoot({ projectDir: PROJECT_DIR });
+  const reportPath = writeCollectionReport({
+    outputRoot,
+    rawPath: RAW_PATH,
+    total,
+    failures: failed.length,
+    failed
+  });
+  console.log(`Report: ${reportPath}`);
+
+  return { rawPath: RAW_PATH, total, failures: failed.length, reportPath };
 }
 
 async function clickAtPosition(ws, x, y) {
