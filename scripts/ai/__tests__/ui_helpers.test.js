@@ -36,3 +36,17 @@ test('modal helpers toggle open state', () => {
   assert.equal(overlay.hidden, true);
   assert.equal(modal.hidden, true);
 });
+
+test('buildErrorDisplay returns hints for login related errors', () => {
+  assert.ok(helpers, 'ui_helpers module should exist');
+  const result = helpers.buildErrorDisplay('未检测到登录账号，请在 Chrome 调试窗口登录后重试。');
+  assert.match(result.title, /失败/);
+  assert.match(result.message, /登录/);
+  assert.equal(result.hints.some((hint) => /登录/.test(hint)), true);
+});
+
+test('buildErrorDisplay returns fallback message when empty', () => {
+  assert.ok(helpers, 'ui_helpers module should exist');
+  const result = helpers.buildErrorDisplay('');
+  assert.match(result.message, /未知/);
+});

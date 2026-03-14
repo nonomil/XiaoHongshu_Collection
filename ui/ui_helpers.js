@@ -37,10 +37,35 @@ function closeSettingsModal({ overlay, modal } = {}) {
   if (modal) modal.hidden = true;
 }
 
+function buildErrorDisplay(errorMessage = '') {
+  const message = String(errorMessage || '').trim();
+  const normalized = message.toLowerCase();
+  const hints = [];
+
+  if (/登录|未登录|账号|账户|cookie|session|auth/.test(message)) {
+    hints.push('请在 Chrome 调试窗口重新登录后重试');
+  }
+  if (/频率|过快|限流|timeout|超时|too many|rate/.test(message) || /timeout/.test(normalized)) {
+    hints.push('降低采集频率，稍后重试');
+  }
+  if (/账号异常|异常/.test(message)) {
+    hints.push('账号异常可尝试切换账号或等待恢复');
+  }
+  if (hints.length === 0) {
+    hints.push('查看日志或稍后重试');
+  }
+
+  return {
+    title: '失败',
+    message: message || '未知错误，请查看日志或稍后重试。',
+    hints
+  };
+}
+
 if (typeof module !== 'undefined') {
-  module.exports = { buildSummaryItems, openSettingsModal, closeSettingsModal };
+  module.exports = { buildSummaryItems, openSettingsModal, closeSettingsModal, buildErrorDisplay };
 }
 
 if (typeof window !== 'undefined') {
-  window.XhsUiHelpers = { buildSummaryItems, openSettingsModal, closeSettingsModal };
+  window.XhsUiHelpers = { buildSummaryItems, openSettingsModal, closeSettingsModal, buildErrorDisplay };
 }
