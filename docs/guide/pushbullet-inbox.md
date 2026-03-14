@@ -24,7 +24,14 @@
 npm run inbox:sync
 ```
 
-CLI 会读取 `config/ui.json` 内的 Pushbullet 设置与收件箱路径。
+CLI 会读取 `config/pushbullet.json` 内的 Pushbullet 设置与收件箱路径。
+
+## 收件箱批量保存为 Markdown
+```bash
+npm run inbox:save
+```
+
+会读取收件箱里的链接并逐条保存为 Markdown。运行时需要 Chrome 远程调试可用（与手动保存链接一致）。
 
 ## 收件箱落盘路径
 默认路径：
@@ -35,7 +42,7 @@ data/inbox_links.jsonl
 可在设置中修改为相对路径或绝对路径。
 
 ## 注意事项
-- Access Token 会保存在 `config/ui.json`，请勿随意分享。
+- Access Token 会保存在 `config/pushbullet.json`，请勿随意分享。
 - 同步使用 `lastModified` 做增量拉取，避免重复处理。
 
 ## 扩展入口规范（预留）

@@ -10,7 +10,7 @@
 - [x] 确认收件箱落盘路径与格式（JSONL）
 
 ## Phase 1｜配置与数据结构
-- [x] 在 `ui_config.json` 结构中增加 `pushbullet.*` 与 `inbox.path`
+- [x] 将 Pushbullet 配置外置到 `config/pushbullet.json`
 - [x] 新增 `InboxItem` 结构定义（source/url/title/timestamp/raw）
 - [x] 新增 `InboxStore`（写入、去重、读取）
 
@@ -24,6 +24,7 @@
 - [x] 新增 API：`POST /api/inbox/sync`
 - [x] 返回统计：新增/跳过/失败 + 错误摘要
 - [x] CLI 命令：`npm run inbox:sync`（或脚本入口）
+- [x] CLI 命令：`npm run inbox:save`（收件箱批量保存 Markdown）
 
 ## Phase 4｜UI 接入
 - [x] 主界面新增“同步收件箱”按钮
