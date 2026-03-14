@@ -365,6 +365,38 @@ select:focus {
   min-height: 100%;
 }
 
+.error-banner {
+  border: 1px solid rgba(180, 35, 24, 0.25);
+  background: rgba(180, 35, 24, 0.08);
+  border-radius: 18px;
+  padding: 16px 18px;
+  display: grid;
+  gap: 10px;
+  margin: 20px 24px 0;
+}
+
+.error-banner-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #b42318;
+}
+
+.error-message {
+  margin: 0;
+  color: #7a2a25;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.error-hints {
+  margin: 0;
+  padding-left: 18px;
+  color: #7a2a25;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .result-head {
   display: flex;
   justify-content: space-between;
