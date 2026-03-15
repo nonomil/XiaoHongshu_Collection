@@ -220,14 +220,16 @@ function sleep(ms) {
 }
 
 const DEBUG_COMMENTS = process.env.XHS_DEBUG_COMMENTS === '1';
-const COMMENT_THROTTLE_MS = resolveNumberEnv(process.env.XHS_COMMENT_THROTTLE_MS, 300);
-const COMMENT_THROTTLE_JITTER_MS = resolveNumberEnv(process.env.XHS_COMMENT_THROTTLE_JITTER_MS, 200);
+// Comment expansion is sensitive to frequency. Default to a conservative throttle so
+// bulk exports are less likely to trigger temporary account/anti-abuse limits.
+const COMMENT_THROTTLE_MS = resolveNumberEnv(process.env.XHS_COMMENT_THROTTLE_MS, 1500);
+const COMMENT_THROTTLE_JITTER_MS = resolveNumberEnv(process.env.XHS_COMMENT_THROTTLE_JITTER_MS, 800);
 const COMMENT_RETRY_COUNT = resolveNumberEnv(process.env.XHS_COMMENT_RETRY_COUNT, 2);
-const COMMENT_RETRY_BASE_MS = resolveNumberEnv(process.env.XHS_COMMENT_RETRY_BASE_MS, 400);
-const COMMENT_RETRY_MAX_MS = resolveNumberEnv(process.env.XHS_COMMENT_RETRY_MAX_MS, 2000);
+const COMMENT_RETRY_BASE_MS = resolveNumberEnv(process.env.XHS_COMMENT_RETRY_BASE_MS, 600);
+const COMMENT_RETRY_MAX_MS = resolveNumberEnv(process.env.XHS_COMMENT_RETRY_MAX_MS, 3000);
 const COMMENT_MAX_ROUNDS_DEFAULT = 20;
-const COMMENT_NO_CHANGE_ROUNDS_DEFAULT = 6;
-const REPLY_MAX_ROUNDS_DEFAULT = 12;
+const COMMENT_NO_CHANGE_ROUNDS_DEFAULT = 12;
+const REPLY_MAX_ROUNDS_DEFAULT = 20;
 const COMMENT_NON_TEXT_PLACEHOLDER = '[\u975e\u6587\u672c\u5185\u5bb9]';
 
 function logCommentDebug(label, state) {
@@ -999,10 +1001,10 @@ async function expandAllComments(ws, maxRounds, options = {}) {
   const wait = options.wait || sleep;
   const stuckAttempts = Number.isFinite(options.stuckAttempts)
     ? Math.max(1, options.stuckAttempts)
-    : resolveNumberEnv(process.env.XHS_COMMENT_STUCK_ATTEMPTS, 12);
+    : resolveNumberEnv(process.env.XHS_COMMENT_STUCK_ATTEMPTS, 18);
   const stuckIntervalMs = Number.isFinite(options.stuckIntervalMs)
     ? Math.max(50, options.stuckIntervalMs)
-    : resolveNumberEnv(process.env.XHS_COMMENT_STUCK_INTERVAL_MS, 500);
+    : resolveNumberEnv(process.env.XHS_COMMENT_STUCK_INTERVAL_MS, 800);
   const maxRoundsSafe = Number.isFinite(maxRounds)
     ? maxRounds
     : resolveNumberEnv(process.env.XHS_COMMENT_MAX_ROUNDS, COMMENT_MAX_ROUNDS_DEFAULT);
