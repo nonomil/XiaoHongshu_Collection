@@ -4,7 +4,8 @@ const linksSubmit = document.getElementById('links-submit');
 const linksClear = document.getElementById('links-clear');
 const collectionSubmit = document.getElementById('collection-submit');
 const inboxSyncButton = document.getElementById('inbox-sync');
-const inboxSyncCardButton = document.getElementById('inbox-sync-card');
+const inboxSyncLatestButton = document.getElementById('inbox-sync-latest');
+const inboxSyncAllButton = document.getElementById('inbox-sync-all');
 const statusText = document.getElementById('status-text');
 const resultOutput = document.getElementById('result-output');
 const resultSummary = document.getElementById('result-summary');
@@ -559,14 +560,14 @@ collectionSubmit.addEventListener('click', async () => {
   }
 });
 
-async function runInboxSync() {
+async function runInboxSync(mode = 'latest') {
   setBusy(true, '正在同步收件箱...');
   renderText('任务已提交，等待返回...');
   resetProgressList();
 
   try {
     const payload = await requestJson('/api/inbox/sync', {
-      body: { uiConfig: readConfigFromForm() }
+      body: { uiConfig: readConfigFromForm(), mode }
     });
     statusText.textContent = '收件箱同步完成';
     renderReport(payload);
@@ -578,9 +579,12 @@ async function runInboxSync() {
   }
 }
 
-inboxSyncButton.addEventListener('click', runInboxSync);
-if (inboxSyncCardButton) {
-  inboxSyncCardButton.addEventListener('click', runInboxSync);
+inboxSyncButton.addEventListener('click', () => runInboxSync('latest'));
+if (inboxSyncLatestButton) {
+  inboxSyncLatestButton.addEventListener('click', () => runInboxSync('latest'));
+}
+if (inboxSyncAllButton) {
+  inboxSyncAllButton.addEventListener('click', () => runInboxSync('all'));
 }
 
 loadUiConfig().catch((error) => {
