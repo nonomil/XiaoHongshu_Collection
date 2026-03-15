@@ -4,8 +4,10 @@ const linksSubmit = document.getElementById('links-submit');
 const linksClear = document.getElementById('links-clear');
 const collectionSubmit = document.getElementById('collection-submit');
 const inboxSyncButton = document.getElementById('inbox-sync');
+const inboxSyncAllTopButton = document.getElementById('inbox-sync-all-top');
 const inboxSyncLatestButton = document.getElementById('inbox-sync-latest');
 const inboxSyncAllButton = document.getElementById('inbox-sync-all');
+const inboxSaveButton = document.getElementById('inbox-save');
 const statusText = document.getElementById('status-text');
 const resultOutput = document.getElementById('result-output');
 const resultSummary = document.getElementById('result-summary');
@@ -52,6 +54,10 @@ function setBusy(isBusy, message) {
   linksSubmit.disabled = isBusy;
   collectionSubmit.disabled = isBusy;
   inboxSyncButton.disabled = isBusy;
+  if (inboxSyncAllTopButton) inboxSyncAllTopButton.disabled = isBusy;
+  if (inboxSyncLatestButton) inboxSyncLatestButton.disabled = isBusy;
+  if (inboxSyncAllButton) inboxSyncAllButton.disabled = isBusy;
+  if (inboxSaveButton) inboxSaveButton.disabled = isBusy;
   configSave.disabled = isBusy;
   configReload.disabled = isBusy;
   statusText.textContent = message;
@@ -564,6 +570,7 @@ async function runInboxSync(mode = 'latest') {
   setBusy(true, '正在同步收件箱...');
   renderText('任务已提交，等待返回...');
   resetProgressList();
+  clearErrorBanner();
 
   try {
     const payload = await requestJson('/api/inbox/sync', {
@@ -574,17 +581,45 @@ async function runInboxSync(mode = 'latest') {
   } catch (error) {
     statusText.textContent = '收件箱同步失败';
     renderText(error.message);
+    renderErrorBanner(error.message || '请求失败');
+  } finally {
+    setBusy(false, statusText.textContent);
+  }
+}
+
+async function runInboxSave() {
+  setBusy(true, '正在解析保存收件箱...');
+  renderText('任务已提交，等待返回...');
+  resetProgressList();
+  clearErrorBanner();
+
+  try {
+    const payload = await requestJson('/api/inbox/save', {
+      body: { uiConfig: readConfigFromForm() }
+    });
+    statusText.textContent = '收件箱解析保存完成';
+    renderReport(payload);
+  } catch (error) {
+    statusText.textContent = '收件箱解析保存失败';
+    renderText(error.message);
+    renderErrorBanner(error.message || '请求失败');
   } finally {
     setBusy(false, statusText.textContent);
   }
 }
 
 inboxSyncButton.addEventListener('click', () => runInboxSync('latest'));
+if (inboxSyncAllTopButton) {
+  inboxSyncAllTopButton.addEventListener('click', () => runInboxSync('all'));
+}
 if (inboxSyncLatestButton) {
   inboxSyncLatestButton.addEventListener('click', () => runInboxSync('latest'));
 }
 if (inboxSyncAllButton) {
   inboxSyncAllButton.addEventListener('click', () => runInboxSync('all'));
+}
+if (inboxSaveButton) {
+  inboxSaveButton.addEventListener('click', () => runInboxSave());
 }
 
 loadUiConfig().catch((error) => {
