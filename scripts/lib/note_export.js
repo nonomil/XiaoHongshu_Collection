@@ -324,6 +324,8 @@ function generateMarkdown({ note, content, ocrTexts, summary, tags, commentSumma
   const date = cleanDate(note.date);
   const shortNote = cleanedContent.length < 50;
   const sourceUrl = resolveSourceUrl(note) || `https://www.xiaohongshu.com/discovery/item/${note.noteId}`;
+  const commentTotal = Number(note.commentTotal || 0);
+  const commentCollected = Array.isArray(note.comments) ? note.comments.length : 0;
   const safeSummary = summary || note.title || '';
   let safeTags = cleanTags((tags && tags.length > 0) ? tags : ['小红书', ...(note.tags || [])]);
   while (safeTags.length < 3) safeTags.push('笔记');
@@ -338,6 +340,8 @@ function generateMarkdown({ note, content, ocrTexts, summary, tags, commentSumma
   md += `summary: "${safeSummary}"\n`;
   md += `tags: [${safeTags.join(', ')}]\n`;
   md += `short_note: ${shortNote}\n`;
+  md += `comment_total: ${commentTotal}\n`;
+  md += `comment_collected: ${commentCollected}\n`;
   md += '---\n\n';
 
   if (cleanedContent) {
@@ -755,7 +759,8 @@ function buildSingleNoteExportResult({
   summary = '',
   tags = [],
   commentSummary = '',
-  usefulComments = []
+  usefulComments = [],
+  warnings = []
 }) {
   return {
     filepath,
@@ -765,7 +770,8 @@ function buildSingleNoteExportResult({
     summary,
     tags,
     commentSummary,
-    usefulComments
+    usefulComments,
+    warnings
   };
 }
 
@@ -831,6 +837,22 @@ async function processSingleNoteExport({
   const usefulComments = await getUsefulComments({ comments: note.comments, config });
   const commentSummary = await summarizeUsefulComments({ usefulComments, config });
   const commentError = note.commentError || '';
+  const commentTotal = Number(note.commentTotal || 0);
+  const commentCollected = Array.isArray(note.comments) ? note.comments.length : 0;
+  const warnings = [];
+  if (commentTotal > 0 && commentCollected < commentTotal) {
+    warnings.push({
+      step: 'comments',
+      code: 'comment_incomplete',
+      message: commentError || `评论可能未完整加载：页面显示共 ${commentTotal} 条，当前抓取 ${commentCollected} 条。`
+    });
+  } else if (commentError) {
+    warnings.push({
+      step: 'comments',
+      code: 'comment_warning',
+      message: commentError
+    });
+  }
   let commentArchivePath = '';
   if (Array.isArray(note.comments) && note.comments.length > 0) {
     commentArchivePath = writeCommentArchive({
@@ -862,7 +884,8 @@ async function processSingleNoteExport({
     summary,
     tags,
     commentSummary,
-    usefulComments
+    usefulComments,
+    warnings
   });
 }
 

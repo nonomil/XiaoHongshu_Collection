@@ -366,7 +366,8 @@ function buildSuccessfulSaveSummaryItem(baseResult, saved) {
   return {
     ...baseResult,
     status: 'success',
-    filepath: saved?.result?.filepath || saved?.filepath || ''
+    filepath: saved?.result?.filepath || saved?.filepath || '',
+    warnings: saved?.result?.warnings || []
   };
 }
 

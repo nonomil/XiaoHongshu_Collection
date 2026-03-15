@@ -62,6 +62,7 @@ function buildBaseNote({ detail, noteId, collection, account }) {
     images: Array.isArray(detail.images) ? detail.images : [],
     comments: Array.isArray(detail.comments) ? detail.comments : [],
     commentError: detail.commentError || '',
+    commentTotal: detail.commentTotal || 0,
     noteUrl: detail.url || '',
     noteId: noteId || '',
     collection,
@@ -860,6 +861,7 @@ async function extractNoteDetail(ws) {
         attempts: 6,
         intervalMs: 500
       });
+      result.commentTotal = Number(state?.totalCount || 0);
       const warning = await resolveCommentError({
         comments: result.comments,
         state,

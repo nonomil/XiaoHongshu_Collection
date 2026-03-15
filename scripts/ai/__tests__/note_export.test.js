@@ -101,6 +101,32 @@ test('generateMarkdown prefers sourceUrl when provided', () => {
   assert.match(markdown, /\*来源：小红书 \[@作者\]\(http:\/\/xhslink\.com\/o\/short1\)\*/);
 });
 
+test('generateMarkdown includes comment total and collected', () => {
+  const markdown = generateMarkdown({
+    note: {
+      title: '标题',
+      noteId: 'abc123',
+      author: '作者',
+      collection: '单条笔记保存',
+      date: '2026-03-08',
+      tags: [],
+      images: [],
+      commentTotal: 10,
+      comments: [
+        { author: 'A', content: 'c1' },
+        { author: 'B', content: 'c2' }
+      ]
+    },
+    content: '正文',
+    ocrTexts: [],
+    summary: '摘要',
+    tags: ['标签1', '标签2', '标签3']
+  });
+
+  assert.match(markdown, /comment_total: 10/);
+  assert.match(markdown, /comment_collected: 2/);
+});
+
 test('generateMarkdown renders comment collection failure without blocking note body', () => {
   const markdown = generateMarkdown({
     note: {
@@ -381,7 +407,7 @@ test('processSingleNoteExport returns a stable result shape when comments exist'
 
   assert.deepEqual(
     Object.keys(result).sort(),
-    ['commentArchivePath', 'commentSummary', 'content', 'filepath', 'ocrTexts', 'summary', 'tags', 'usefulComments']
+    ['commentArchivePath', 'commentSummary', 'content', 'filepath', 'ocrTexts', 'summary', 'tags', 'usefulComments', 'warnings']
   );
   assert.equal(typeof result.filepath, 'string');
   assert.equal(result.filepath.endsWith('.md'), true);
@@ -393,6 +419,7 @@ test('processSingleNoteExport returns a stable result shape when comments exist'
   assert.equal(Array.isArray(result.tags), true);
   assert.equal(Array.isArray(result.usefulComments), true);
   assert.equal(typeof result.commentSummary, 'string');
+  assert.equal(Array.isArray(result.warnings), true);
 });
 
 test('processSingleNoteExport returns a stable result shape when comments are absent', async () => {
@@ -423,7 +450,7 @@ test('processSingleNoteExport returns a stable result shape when comments are ab
 
   assert.deepEqual(
     Object.keys(result).sort(),
-    ['commentArchivePath', 'commentSummary', 'content', 'filepath', 'ocrTexts', 'summary', 'tags', 'usefulComments']
+    ['commentArchivePath', 'commentSummary', 'content', 'filepath', 'ocrTexts', 'summary', 'tags', 'usefulComments', 'warnings']
   );
   assert.equal(typeof result.filepath, 'string');
   assert.equal(result.commentArchivePath, '');
@@ -433,6 +460,7 @@ test('processSingleNoteExport returns a stable result shape when comments are ab
   assert.equal(Array.isArray(result.tags), true);
   assert.equal(Array.isArray(result.usefulComments), true);
   assert.equal(typeof result.commentSummary, 'string');
+  assert.equal(Array.isArray(result.warnings), true);
 });
 
 test('getVisionOcrEndpoint uses responses api for openai-compatible provider', () => {
