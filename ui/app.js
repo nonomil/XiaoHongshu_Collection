@@ -45,6 +45,7 @@ const runtimeMaxImages = document.getElementById('runtime-max-images');
 const pushbulletEnabled = document.getElementById('pushbullet-enabled');
 const pushbulletToken = document.getElementById('pushbullet-token');
 const inboxPath = document.getElementById('inbox-path');
+const inboxCategories = document.getElementById('inbox-categories');
 const uiShowRaw = document.getElementById('ui-show-raw');
 
 let currentConfig = null;
@@ -297,6 +298,19 @@ function readConfigFromForm() {
   const tokenInput = String(pushbulletToken.value || '').trim();
   const accessToken = tokenInput || fallback.pushbullet?.accessToken || '';
   const inboxValue = String(inboxPath.value || '').trim();
+  const categoriesText = String(inboxCategories?.value || '').trim();
+  let inboxCategoriesValue = fallback.inbox?.categories || {};
+  if (categoriesText) {
+    try {
+      const parsed = JSON.parse(categoriesText);
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+        throw new Error('invalid categories');
+      }
+      inboxCategoriesValue = parsed;
+    } catch (_) {
+      throw new Error('收件箱分类规则 JSON 解析失败');
+    }
+  }
   return {
     paths: {
       saveLinksOutputRoot: String(pathLinksOutput.value || '').trim(),
@@ -322,7 +336,8 @@ function readConfigFromForm() {
       lastModified: Number(fallback.pushbullet?.lastModified || 0)
     },
     inbox: {
-      path: inboxValue || fallback.inbox?.path || ''
+      path: inboxValue || fallback.inbox?.path || '',
+      categories: inboxCategoriesValue
     },
     ui: {
       showRawReport: uiShowRaw.checked
@@ -350,6 +365,10 @@ function applyConfigToForm(config) {
     ? `已保存：${maskToken(cfg.pushbullet.accessToken)}`
     : '在 Pushbullet 账号设置中获取';
   inboxPath.value = cfg.inbox?.path || '';
+  if (inboxCategories) {
+    const categoriesValue = cfg.inbox?.categories || {};
+    inboxCategories.value = JSON.stringify(categoriesValue, null, 2);
+  }
   uiShowRaw.checked = cfg.ui?.showRawReport !== false;
   updateRawReportVisibility(cfg);
 }

@@ -18,3 +18,9 @@ test('index.html contains external inbox entry card copy', () => {
   assert.match(html, /同步全部/);
   assert.match(html, /收件箱解析保存/);
 });
+
+test('index.html contains inbox category settings field', () => {
+  const html = readIndexHtml();
+  assert.match(html, /收件箱分类规则/);
+  assert.match(html, /inbox-categories/);
+});

@@ -21,7 +21,15 @@ test('loadUiConfig returns defaults when missing', () => {
   assert.ok(cfg.paths);
   assert.equal(cfg.naming.conflictStrategy, 'overwrite');
   assert.equal(cfg.pushbullet, undefined);
-  assert.equal(cfg.inbox, undefined);
+  assert.ok(cfg.inbox);
+  assert.deepEqual(cfg.inbox.categories, {});
+});
+
+test('loadUiConfig provides inbox categories defaults', () => {
+  resetTmp();
+  const cfg = loadUiConfig({ configPath: cfgPath });
+  assert.ok(cfg.inbox);
+  assert.deepEqual(cfg.inbox.categories, {});
 });
 
 test('mergeUiConfig overlays user values', () => {

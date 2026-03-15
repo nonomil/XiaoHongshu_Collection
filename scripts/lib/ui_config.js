@@ -20,6 +20,9 @@ const DEFAULT_UI_CONFIG = {
     visionOcrTimeoutMs: 60000,
     maxImagesPerNote: 12
   },
+  inbox: {
+    categories: {}
+  },
   ui: {
     showRawReport: true
   }
