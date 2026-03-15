@@ -5,3 +5,7 @@ tmp/
 .cache/
 config/openrouter.json
 config/vision-ocr.json
+config/pushbullet.json
+config/ui.json
+data/
+backup/
