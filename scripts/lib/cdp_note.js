@@ -228,6 +228,7 @@ const COMMENT_RETRY_MAX_MS = resolveNumberEnv(process.env.XHS_COMMENT_RETRY_MAX_
 const COMMENT_MAX_ROUNDS_DEFAULT = 20;
 const COMMENT_NO_CHANGE_ROUNDS_DEFAULT = 6;
 const REPLY_MAX_ROUNDS_DEFAULT = 12;
+const COMMENT_NON_TEXT_PLACEHOLDER = '[\u975e\u6587\u672c\u5185\u5bb9]';
 
 function logCommentDebug(label, state) {
   if (!DEBUG_COMMENTS) return;
@@ -326,7 +327,25 @@ async function readCommentExpansionState(ws) {
       const root = document.querySelector('#noteContainer') || document;
       const commentsRoot = root.querySelector('.comments-container, .comments-el');
       const commentCount = commentsRoot ? commentsRoot.querySelectorAll('.comment-item').length : 0;
-      const buttonCount = commentsRoot ? commentsRoot.querySelectorAll('.show-more').length : 0;
+      let buttonCount = 0;
+      if (commentsRoot) {
+        const primary = commentsRoot.querySelectorAll('.show-more, [class*="show-more"]');
+        const nodes = Array.from(commentsRoot.querySelectorAll('button, a, div, span'));
+        let candidates = 0;
+
+        for (const node of nodes) {
+          if (node.closest && node.closest('.comment-item')) continue;
+          const textValue = (node.textContent || '').trim();
+          if (!textValue || textValue.length > 12) continue;
+          if (/\\u56de\\u590d/.test(textValue)) continue;
+          if (/\\u5c55\\u5f00\\u5168\\u6587|\\u9605\\u8bfb\\u5168\\u6587|\\u6536\\u8d77/.test(textValue)) continue;
+          if (/\\u66f4\\u591a|\\u5c55\\u5f00|\\u67e5\\u770b|more|view/i.test(textValue)) {
+            candidates += 1;
+          }
+        }
+
+        buttonCount = Math.max(primary.length, candidates);
+      }
       const text = commentsRoot ? String(commentsRoot.textContent || '') : '';
       const totalMatch = text.match(/\\u5171\\s*(\\d+)\\s*\\u6761\\u8bc4\\u8bba/);
       const items = commentsRoot ? Array.from(commentsRoot.querySelectorAll('.comment-item')) : [];
@@ -382,6 +401,249 @@ async function readCommentExpansionStateWithRetry({
   return currentState || {};
 }
 
+function normalizeCommentField(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isStableCommentId(value) {
+  const id = normalizeCommentField(value);
+  if (!id) return false;
+  return !/^comment_\d+$/i.test(id);
+}
+
+function buildFallbackCommentKey(comment) {
+  if (!comment || typeof comment !== 'object') return '';
+  const author = normalizeCommentField(comment.author);
+  const content = normalizeCommentField(comment.content);
+  const date = normalizeCommentField(comment.date);
+  const parentId = normalizeCommentField(comment.parentId);
+  const level = Number.isFinite(Number(comment.level)) ? Number(comment.level) : 0;
+  if (!author && !content && !date) return '';
+  return `f:${JSON.stringify([author, content, date, level, parentId])}`;
+}
+
+function mergeCommentPreferComplete(existing, incoming) {
+  const left = existing && typeof existing === 'object' ? existing : {};
+  const right = incoming && typeof incoming === 'object' ? incoming : {};
+  const merged = { ...left, ...right };
+
+  const leftId = normalizeCommentField(left.commentId);
+  const rightId = normalizeCommentField(right.commentId);
+  const chosenId = isStableCommentId(rightId) ? rightId : (isStableCommentId(leftId) ? leftId : (rightId || leftId));
+  merged.commentId = chosenId;
+
+  const leftAuthor = normalizeCommentField(left.author);
+  const rightAuthor = normalizeCommentField(right.author);
+  merged.author = rightAuthor || leftAuthor;
+
+  const leftContent = normalizeCommentField(left.content);
+  const rightContent = normalizeCommentField(right.content);
+  const leftIsPlaceholder = leftContent === COMMENT_NON_TEXT_PLACEHOLDER;
+  const rightIsPlaceholder = rightContent === COMMENT_NON_TEXT_PLACEHOLDER;
+
+  if (rightContent && (!rightIsPlaceholder || leftIsPlaceholder)) {
+    merged.content = rightContent;
+  } else if (leftContent) {
+    merged.content = leftContent;
+  } else {
+    merged.content = rightContent || leftContent;
+  }
+
+  if (!leftIsPlaceholder && !rightIsPlaceholder && leftContent && rightContent) {
+    merged.content = (rightContent.length >= leftContent.length) ? rightContent : leftContent;
+  }
+
+  const leftDate = normalizeCommentField(left.date);
+  const rightDate = normalizeCommentField(right.date);
+  merged.date = (rightDate.length >= leftDate.length) ? rightDate : leftDate;
+
+  const leftParent = normalizeCommentField(left.parentId);
+  const rightParent = normalizeCommentField(right.parentId);
+  merged.parentId = rightParent || leftParent;
+
+  const leftRoot = normalizeCommentField(left.rootId);
+  const rightRoot = normalizeCommentField(right.rootId);
+  merged.rootId = rightRoot || leftRoot;
+
+  const leftLevel = Number.isFinite(Number(left.level)) ? Number(left.level) : 0;
+  const rightLevel = Number.isFinite(Number(right.level)) ? Number(right.level) : 0;
+  merged.level = Math.max(leftLevel, rightLevel);
+
+  const leftLike = Number.isFinite(Number(left.likeCount)) ? Number(left.likeCount) : 0;
+  const rightLike = Number.isFinite(Number(right.likeCount)) ? Number(right.likeCount) : 0;
+  merged.likeCount = Math.max(leftLike, rightLike);
+
+  const leftReply = Number.isFinite(Number(left.replyCount)) ? Number(left.replyCount) : 0;
+  const rightReply = Number.isFinite(Number(right.replyCount)) ? Number(right.replyCount) : 0;
+  merged.replyCount = Math.max(leftReply, rightReply);
+
+  merged.isAuthor = Boolean(left.isAuthor) || Boolean(right.isAuthor);
+  merged.hasNonTextContent = Boolean(left.hasNonTextContent) || Boolean(right.hasNonTextContent);
+
+  return merged;
+}
+
+function createCommentAccumulator(options = {}) {
+  const placeholder = normalizeCommentField(options.placeholder || COMMENT_NON_TEXT_PLACEHOLDER) || COMMENT_NON_TEXT_PLACEHOLDER;
+  const primaryMap = new Map();
+  const fallbackToPrimary = new Map();
+
+  const normalize = (raw) => {
+    if (!raw || typeof raw !== 'object') return null;
+    const normalized = {
+      ...raw,
+      commentId: normalizeCommentField(raw.commentId),
+      rootId: normalizeCommentField(raw.rootId),
+      parentId: normalizeCommentField(raw.parentId),
+      author: normalizeCommentField(raw.author),
+      content: normalizeCommentField(raw.content),
+      date: normalizeCommentField(raw.date),
+      level: Number.isFinite(Number(raw.level)) ? Number(raw.level) : 0,
+      likeCount: Number.isFinite(Number(raw.likeCount)) ? Number(raw.likeCount) : 0,
+      replyCount: Number.isFinite(Number(raw.replyCount)) ? Number(raw.replyCount) : 0,
+      isAuthor: Boolean(raw.isAuthor),
+      hasNonTextContent: Boolean(raw.hasNonTextContent)
+    };
+
+    if (!normalized.content && normalized.hasNonTextContent) {
+      normalized.content = placeholder;
+    }
+
+    const stableId = isStableCommentId(normalized.commentId) ? normalized.commentId : '';
+    if (!stableId && !normalized.author) {
+      return null;
+    }
+
+    return normalized;
+  };
+
+  const addOne = (raw) => {
+    const comment = normalize(raw);
+    if (!comment) return false;
+
+    const stableKey = isStableCommentId(comment.commentId) ? `id:${comment.commentId}` : '';
+    const fallbackKey = buildFallbackCommentKey(comment);
+
+    if (stableKey) {
+      if (primaryMap.has(stableKey)) {
+        primaryMap.set(stableKey, mergeCommentPreferComplete(primaryMap.get(stableKey), comment));
+        if (fallbackKey && !fallbackToPrimary.has(fallbackKey)) fallbackToPrimary.set(fallbackKey, stableKey);
+        return true;
+      }
+
+      if (fallbackKey && fallbackToPrimary.get(fallbackKey) === fallbackKey && primaryMap.has(fallbackKey)) {
+        const merged = mergeCommentPreferComplete(primaryMap.get(fallbackKey), comment);
+        primaryMap.delete(fallbackKey);
+        primaryMap.set(stableKey, merged);
+        fallbackToPrimary.set(fallbackKey, stableKey);
+        return true;
+      }
+
+      primaryMap.set(stableKey, comment);
+      if (fallbackKey && !fallbackToPrimary.has(fallbackKey)) fallbackToPrimary.set(fallbackKey, stableKey);
+      return true;
+    }
+
+    if (!fallbackKey) return false;
+
+    const mapped = fallbackToPrimary.get(fallbackKey) || fallbackKey;
+    if (primaryMap.has(mapped)) {
+      primaryMap.set(mapped, mergeCommentPreferComplete(primaryMap.get(mapped), comment));
+      return true;
+    }
+
+    primaryMap.set(mapped, comment);
+    if (!fallbackToPrimary.has(fallbackKey)) fallbackToPrimary.set(fallbackKey, mapped);
+    return true;
+  };
+
+  return {
+    addSnapshot(list) {
+      const items = Array.isArray(list) ? list : [];
+      let changed = false;
+      for (const item of items) {
+        if (addOne(item)) changed = true;
+      }
+      return { changed, size: primaryMap.size };
+    },
+    toArray() {
+      return Array.from(primaryMap.values());
+    },
+    get size() {
+      return primaryMap.size;
+    }
+  };
+}
+
+async function readVisibleComments(ws, options = {}) {
+  const evaluate = options.evaluate || ((expression) => evaluateJson(ws, expression));
+
+  const result = await evaluate(`
+    (function() {
+      const root = document.querySelector('#noteContainer') || document;
+      const commentsRoot = root.querySelector('.comments-container, .comments-el');
+      if (!commentsRoot) {
+        return JSON.stringify({ comments: [] });
+      }
+
+      const parseCount = (text) => {
+        const value = String(text || '').trim();
+        const match = value.match(/\\d+/);
+        return match ? Number(match[0]) : 0;
+      };
+
+      const nodes = Array.from(commentsRoot.querySelectorAll('.comment-item'));
+      const comments = nodes.map((node, index) => {
+        const authorEl = node.querySelector('.name');
+        const contentEl = node.querySelector('.content, .note-text, .desc');
+        const likeEl = node.querySelector('.like-wrapper .count, .like .count');
+        const replyEl = node.querySelector('.reply.icon-container .count');
+        const dateValueEl = node.querySelector('.info .date span:first-child');
+        const locationEl = node.querySelector('.info .date .location');
+        const isSub = node.classList.contains('comment-item-sub');
+        const parentComment = node.closest('.reply-container')?.closest('.parent-comment');
+        const parentNode = isSub ? parentComment?.querySelector('.comment-item:not(.comment-item-sub)') : null;
+        const parentId = parentNode
+          ? ((parentNode.getAttribute('id') || '').replace(/^comment-/, '') || parentNode.getAttribute('data-rid') || parentNode.getAttribute('data-id') || '')
+          : '';
+        const rawContent = (contentEl ? contentEl.textContent : node.querySelector('.right')?.childNodes?.[1]?.textContent || '').trim();
+        const dateText = (dateValueEl ? dateValueEl.textContent : '').trim();
+        const locationText = (locationEl ? locationEl.textContent : '').trim();
+        const replyText = (replyEl ? replyEl.textContent : '').trim();
+        const nodeId = ((node.getAttribute('id') || '').replace(/^comment-/, '')) || node.getAttribute('data-rid') || node.getAttribute('data-id') || ('comment_' + (index + 1));
+        const target = contentEl || node.querySelector('.right') || node;
+        const hasNonTextContent = !!(target && target.querySelector && target.querySelector('img, svg, video, canvas, picture'));
+
+        return {
+          commentId: nodeId,
+          parentId,
+          rootId: isSub ? (parentId || node.getAttribute('data-rootid') || nodeId) : nodeId,
+          author: (authorEl ? authorEl.textContent : '').trim(),
+          content: rawContent,
+          hasNonTextContent,
+          date: [dateText, locationText].filter(Boolean).join(' ').trim(),
+          likeCount: parseCount(likeEl ? likeEl.textContent : ''),
+          replyCount: /^\\d+$/.test(replyText) ? Number(replyText) : 0,
+          level: isSub ? 1 : 0,
+          isAuthor: !!node.querySelector('.tag') || /\\u4f5c\\u8005/.test((node.textContent || '').trim())
+        };
+      }).filter((item) => {
+        if (item.author) return true;
+        if (item.content) return true;
+        if (item.hasNonTextContent) return true;
+        if (item.commentId && (item.likeCount > 0 || item.replyCount > 0 || item.date)) return true;
+        return false;
+      });
+
+      return JSON.stringify({ comments });
+    })()
+  `);
+
+  return Array.isArray(result.comments) ? result.comments : [];
+}
+
 async function clickNextCommentExpander(ws, options = {}) {
   const evaluate = options.evaluate || ((expression) => evaluateJson(ws, expression));
   const wait = options.wait || sleep;
@@ -406,9 +668,11 @@ async function clickNextCommentExpander(ws, options = {}) {
 
         const nodes = Array.from(commentsRoot.querySelectorAll('button, a, div, span'));
         for (const node of nodes) {
+          if (node.closest && node.closest('.comment-item')) continue;
           const text = (node.textContent || '').trim();
-          if (!text || text.length > 8) continue;
+          if (!text || text.length > 12) continue;
           if (/\u56de\u590d/.test(text)) continue;
+          if (/\u5c55\u5f00\u5168\u6587|\u9605\u8bfb\u5168\u6587|\u6536\u8d77/.test(text)) continue;
           if (/\u66f4\u591a|\u5c55\u5f00|\u67e5\u770b|more|view/i.test(text)) {
             node.scrollIntoView({ block: 'center' });
             node.click();
@@ -447,11 +711,15 @@ async function clickNextReplyExpander(ws, options = {}) {
       );
 
       for (const node of nodes) {
+        if (node && node.dataset && node.dataset.xhsCollectorClicked === '1') continue;
         const text = (node.textContent || '').trim();
                 const match = text.match(/[0-9\uFF10-\uFF19]+/);
         if (!match) continue;
         const normalized = match[0].replace(/[\uFF10-\uFF19]/g, (ch) => String(ch.charCodeAt(0) - 0xFF10));
         node.scrollIntoView({ block: 'center' });
+        if (node && node.dataset) {
+          node.dataset.xhsCollectorClicked = '1';
+        }
         node.click();
         return JSON.stringify({ clicked: true, count: Number(normalized) });
       }
@@ -478,6 +746,9 @@ async function expandAllReplies(ws, maxRounds, options = {}) {
   const maxRoundsSafe = Number.isFinite(maxRounds)
     ? maxRounds
     : resolveNumberEnv(process.env.XHS_REPLY_MAX_ROUNDS, REPLY_MAX_ROUNDS_DEFAULT);
+  const maxNoChangeRounds = Number.isFinite(options.maxNoChangeRounds)
+    ? Math.max(0, options.maxNoChangeRounds)
+    : resolveNumberEnv(process.env.XHS_REPLY_NO_CHANGE_ROUNDS, 4);
   const throttle = async () => {
     const delay = resolveDelayMs({ baseMs: throttleMs, jitterMs: throttleJitterMs });
     if (delay > 0) {
@@ -486,6 +757,7 @@ async function expandAllReplies(ws, maxRounds, options = {}) {
   };
 
   let currentState = await readState();
+  let noChangeRounds = 0;
 
   for (let round = 0; round < maxRoundsSafe; round += 1) {
     const clicked = await clickNext();
@@ -500,7 +772,13 @@ async function expandAllReplies(ws, maxRounds, options = {}) {
     });
 
     currentState = result.state;
-    if (!result.changed) break;
+    if (!result.changed) {
+      noChangeRounds += 1;
+      if (noChangeRounds >= maxNoChangeRounds) break;
+      await throttle();
+      continue;
+    }
+    noChangeRounds = 0;
     await throttle();
   }
 }
@@ -657,19 +935,27 @@ async function expandAllComments(ws, maxRounds, options = {}) {
   const clickNext = options.clickNext || (() => clickNextCommentExpander(ws));
   const scrollMore = options.scrollMore || (() => scrollMoreComments(ws));
   const waitForStateChange = options.waitForStateChange || ((params) => waitForCommentStateChange(params));
+  const shouldLoadMore = options.shouldLoadMore || ((state) => shouldLoadMoreComments(state));
   const throttleMs = Number.isFinite(options.throttleMs) ? options.throttleMs : COMMENT_THROTTLE_MS;
   const throttleJitterMs = Number.isFinite(options.throttleJitterMs)
     ? options.throttleJitterMs
     : COMMENT_THROTTLE_JITTER_MS;
   const wait = options.wait || sleep;
+  const stuckAttempts = Number.isFinite(options.stuckAttempts)
+    ? Math.max(1, options.stuckAttempts)
+    : resolveNumberEnv(process.env.XHS_COMMENT_STUCK_ATTEMPTS, 12);
+  const stuckIntervalMs = Number.isFinite(options.stuckIntervalMs)
+    ? Math.max(50, options.stuckIntervalMs)
+    : resolveNumberEnv(process.env.XHS_COMMENT_STUCK_INTERVAL_MS, 500);
   const maxRoundsSafe = Number.isFinite(maxRounds)
     ? maxRounds
     : resolveNumberEnv(process.env.XHS_COMMENT_MAX_ROUNDS, COMMENT_MAX_ROUNDS_DEFAULT);
   const maxNoChangeRounds = Number.isFinite(options.maxNoChangeRounds)
     ? Math.max(0, options.maxNoChangeRounds)
     : resolveNumberEnv(process.env.XHS_COMMENT_NO_CHANGE_ROUNDS, COMMENT_NO_CHANGE_ROUNDS_DEFAULT);
-  const throttle = async () => {
-    const delay = resolveDelayMs({ baseMs: throttleMs, jitterMs: throttleJitterMs });
+  const throttle = async (multiplier = 1) => {
+    const baseMs = Math.max(0, throttleMs * (Number.isFinite(multiplier) ? multiplier : 1));
+    const delay = resolveDelayMs({ baseMs, jitterMs: throttleJitterMs });
     if (delay > 0) {
       await wait(delay);
     }
@@ -689,22 +975,28 @@ async function expandAllComments(ws, maxRounds, options = {}) {
   logCommentDebug('expand:init', currentState);
 
   for (let round = 0; round < maxRoundsSafe; round += 1) {
-    if (!shouldLoadMoreComments(currentState)) break;
+    if (!shouldLoadMore(currentState)) break;
 
     let advanced = false;
     if (currentState.buttonCount > 0) {
       advanced = await clickNext();
+      if (!advanced) {
+        advanced = await scrollMore();
+      }
     } else {
       advanced = await scrollMore();
     }
     if (!advanced) break;
 
+    const waitAttempts = noChangeRounds > 0 ? stuckAttempts : (options.attempts || 6);
+    const waitIntervalMs = noChangeRounds > 0 ? stuckIntervalMs : (options.intervalMs || 300);
+
     const result = await waitForStateChange({
       previousState: currentState,
       readState,
       wait,
-      attempts: options.attempts || 6,
-      intervalMs: options.intervalMs || 300
+      attempts: waitAttempts,
+      intervalMs: waitIntervalMs
     });
 
     currentState = result.state;
@@ -716,12 +1008,12 @@ async function expandAllComments(ws, maxRounds, options = {}) {
     }
 
     noChangeRounds += 1;
-    if (!shouldLoadMoreComments(currentState)) break;
+    if (!shouldLoadMore(currentState)) break;
     if (noChangeRounds >= maxNoChangeRounds) break;
-    await throttle();
+    await throttle(1 + Math.min(noChangeRounds, 4));
   }
   if (options.expandReplies !== false) {
-    await expandAllReplies(ws, options.replyRounds || 8, {
+    await expandAllReplies(ws, options.replyRounds, {
       readState,
       waitForStateChange,
       wait,
@@ -734,7 +1026,7 @@ async function expandAllComments(ws, maxRounds, options = {}) {
 
 }
 
-async function extractNoteComments(ws) {
+async function extractNoteCommentsLegacy(ws) {
   await expandAllComments(ws);
 
   const result = await evaluateJson(ws, `
@@ -790,6 +1082,38 @@ async function extractNoteComments(ws) {
   `);
 
   return Array.isArray(result.comments) ? result.comments : [];
+}
+
+async function extractNoteComments(ws) {
+  const accumulator = createCommentAccumulator();
+  const addSnapshot = async () => {
+    const snapshot = await readVisibleComments(ws);
+    accumulator.addSnapshot(snapshot);
+  };
+
+  await addSnapshot();
+
+  const waitForStateChange = async (params) => {
+    const result = await waitForCommentStateChange(params);
+    try {
+      await addSnapshot();
+    } catch (_) {
+      // ignore snapshot errors so expansion can continue
+    }
+    return result;
+  };
+
+  const shouldLoadMore = (state) => {
+    if (!shouldLoadMoreComments(state)) return false;
+    const total = Number(state?.totalCount || 0);
+    if (total > 0 && accumulator.size >= total) return false;
+    return true;
+  };
+
+  await expandAllComments(ws, undefined, { waitForStateChange, shouldLoadMore });
+  await addSnapshot();
+
+  return accumulator.toArray();
 }
 
 async function extractNoteDetail(ws) {
@@ -939,6 +1263,7 @@ module.exports = {
   clickNextCommentExpander,
   clickNextReplyExpander,
   connectToChrome,
+  createCommentAccumulator,
   ensureCommentsReady,
   extractImageUrlsFromStateNote,
   expandAllComments,
@@ -951,6 +1276,7 @@ module.exports = {
   navigateToUrl,
   readCommentExpansionState,
   readCommentExpansionStateWithRetry,
+  readVisibleComments,
   readNoteDetailReadyState,
   resolveCommentError,
   selectDebuggerTab,
