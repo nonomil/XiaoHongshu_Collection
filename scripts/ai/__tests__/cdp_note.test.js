@@ -150,7 +150,10 @@ test('expandAllComments keeps clicking while delayed updates still reveal more c
       clicks.push('clicked');
       return true;
     },
-    waitForStateChange: async () => waitResults.shift() || { changed: false, state: { commentCount: 16, buttonCount: 0 } }
+    waitForStateChange: async () => waitResults.shift() || { changed: false, state: { commentCount: 16, buttonCount: 0 } },
+    expandReplies: false,
+    throttleMs: 0,
+    throttleJitterMs: 0
   });
 
   assert.equal(clicks.length, 2);
@@ -209,7 +212,10 @@ test('expandAllComments keeps advancing when more top-level comments require scr
       scrolls.push('scrolled');
       return true;
     },
-    waitForStateChange: async () => waitResults.shift() || { changed: false, state: { commentCount: 30, buttonCount: 0, totalCount: 30, reachedEnd: true, lastCommentId: 'c30' } }
+    waitForStateChange: async () => waitResults.shift() || { changed: false, state: { commentCount: 30, buttonCount: 0, totalCount: 30, reachedEnd: true, lastCommentId: 'c30' } },
+    expandReplies: false,
+    throttleMs: 0,
+    throttleJitterMs: 0
   });
 
   assert.equal(scrolls.length, 2);
@@ -235,6 +241,28 @@ test('waitForNoteDetailReady polls until the note detail title is available', as
     state: { url: 'https://www.xiaohongshu.com/explore/abc123', title: '标题' }
   });
   assert.deepEqual(waits, [500, 500, 500]);
+});
+
+test('waitForNoteDetailReady treats state note data as ready even without title', async () => {
+  const states = [
+    { url: 'about:blank', title: '' },
+    { url: 'https://www.xiaohongshu.com/explore/abc123', title: '', hasStateNote: false },
+    { url: 'https://www.xiaohongshu.com/explore/abc123', title: '', hasStateNote: true }
+  ];
+  const waits = [];
+
+  const result = await waitForNoteDetailReady({
+    readState: async () => states.shift(),
+    wait: async (ms) => { waits.push(ms); },
+    attempts: 3,
+    intervalMs: 200
+  });
+
+  assert.deepEqual(result, {
+    ready: true,
+    state: { url: 'https://www.xiaohongshu.com/explore/abc123', title: '', hasStateNote: true }
+  });
+  assert.deepEqual(waits, [200, 200, 200]);
 });
 
 test('selectDebuggerTab falls back to a regular page tab when xiaohongshu is not open yet', () => {

@@ -107,6 +107,24 @@ test('saveModesSequentially aggregates results without aborting after a failure'
   );
 });
 
+test('saveModesSequentially waits between notes when throttling is enabled', async () => {
+  const waits = [];
+  await saveModesSequentially(
+    [
+      { noteId: 'a1', canonicalUrl: 'https://www.xiaohongshu.com/discovery/item/a1' },
+      { noteId: 'b2', canonicalUrl: 'https://www.xiaohongshu.com/discovery/item/b2' }
+    ],
+    {
+      saveMode: async (mode) => ({ result: { filepath: `G:/output/${mode.noteId}.md` } }),
+      noteDelayMs: 120,
+      noteDelayJitterMs: 0,
+      sleep: async (ms) => { waits.push(ms); }
+    }
+  );
+
+  assert.deepEqual(waits, [120]);
+});
+
 test('saveLinksText passes ui overrides to exportNote', async () => {
   let captured;
   await saveLinksText('https://www.xiaohongshu.com/explore/abc123', {

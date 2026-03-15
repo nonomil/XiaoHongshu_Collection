@@ -203,6 +203,22 @@ test('inbox sync api returns a normalized success payload', async () => {
   assert.equal(response.body.report.total, 3);
 });
 
+test('save-collection api surfaces login-related errors in response', async () => {
+  const { baseUrl } = await startServer({
+    runCollectionExport: async () => {
+      const error = new Error('Script failed: scripts/extract_v4.js');
+      error.logs = ['Fatal error: \u672a\u68c0\u6d4b\u5230\u767b\u5f55\u8d26\u53f7\uff0c\u8bf7\u5728 Chrome \u8c03\u8bd5\u7a97\u53e3\u767b\u5f55\u540e\u91cd\u8bd5\u3002'];
+      throw error;
+    }
+  });
+
+  const response = await requestJson(`${baseUrl}/api/save-collection`, {});
+
+  assert.equal(response.statusCode, 500);
+  assert.equal(response.body.ok, false);
+  assert.match(response.body.error, /\u767b\u5f55/);
+});
+
 test('ui config api returns defaults when missing', async () => {
   const tempDir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-ui-config-'));
   const uiConfigPath = path.join(tempDir, 'ui.json');

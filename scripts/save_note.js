@@ -20,6 +20,7 @@ const {
   buildNoteSaveTask,
   normalizeTaskInput
 } = require('./lib/task');
+const { resolveNumberEnv, resolveDelayMs, sleep } = require('./lib/async_control');
 const { resolveProjectPaths } = require('./lib/config');
 const { classifyTaskError } = require('./lib/errors');
 const { buildTaskSummary } = require('./lib/report');
@@ -363,6 +364,13 @@ async function saveModesSequentially(modes, options = {}) {
     : (mode) => saveMode(mode, options);
   const list = Array.isArray(modes) ? modes : [];
   const results = [];
+  const noteDelayMs = Number.isFinite(options.noteDelayMs)
+    ? options.noteDelayMs
+    : resolveNumberEnv(process.env.XHS_NOTE_THROTTLE_MS, 800);
+  const noteDelayJitterMs = Number.isFinite(options.noteDelayJitterMs)
+    ? options.noteDelayJitterMs
+    : resolveNumberEnv(process.env.XHS_NOTE_THROTTLE_JITTER_MS, 400);
+  const wait = options.sleep || sleep;
 
   for (let index = 0; index < list.length; index += 1) {
     const mode = list[index];
@@ -383,6 +391,13 @@ async function saveModesSequentially(modes, options = {}) {
         status: 'failed',
         error: formatSaveNoteError(error)
       });
+    }
+
+    if (index < list.length - 1) {
+      const delay = resolveDelayMs({ baseMs: noteDelayMs, jitterMs: noteDelayJitterMs });
+      if (delay > 0) {
+        await wait(delay);
+      }
     }
   }
 

@@ -1,5 +1,7 @@
 const http = require('http');
 const WebSocket = require('ws');
+const { resolveNumberEnv, resolveDelayMs, retryAsync } = require('./async_control');
+const { logWarn } = require('./logger');
 
 function isNoteDetailUrl(url) {
   return /xiaohongshu\.com\/(?:explore|discovery\/item)\//i.test(String(url || ''));
@@ -82,6 +84,67 @@ function buildSingleNote({ detail, noteId, account }) {
   });
 }
 
+function buildCommentCompletionWarning({ totalCount, actualCount } = {}) {
+  const total = Number(totalCount);
+  const actual = Number(actualCount);
+  if (!Number.isFinite(total) || total <= 0) return '';
+  if (!Number.isFinite(actual) || actual < 0) return '';
+  if (actual >= total) return '';
+  return `\u8bc4\u8bba\u53ef\u80fd\u672a\u5b8c\u6574\u52a0\u8f7d\uff1a\u9875\u9762\u663e\u793a\u5171 ${total} \u6761\uff0c\u5f53\u524d\u6293\u53d6 ${actual} \u6761\u3002\u53ef\u80fd\u539f\u56e0\uff1a\u7f51\u9875\u7aef\u9650\u5236\u3001\u8bc4\u8bba\u9700\u5c55\u5f00\u6216\u9700\u8981\u767b\u5f55/\u6253\u5f00\u5e94\u7528\u67e5\u770b\u66f4\u591a\u3002`;
+}
+
+function buildCommentApiFailureMessage({ code, message, status } = {}) {
+  const normalizedCode = Number.isFinite(code) ? Number(code) : code;
+  const normalizedMessage = String(message || '').trim();
+
+  if (normalizedCode === 300011) {
+    return '\u8bc4\u8bba\u63a5\u53e3\u8fd4\u56de\uff1a\u5f53\u524d\u8d26\u53f7\u5b58\u5728\u5f02\u5e38\uff0c\u8bf7\u5207\u6362\u8d26\u53f7\u6216\u91cd\u65b0\u767b\u5f55\uff0c\u964d\u4f4e\u9891\u7387\u540e\u91cd\u8bd5\u3002';
+  }
+  if (normalizedCode === -101) {
+    return '\u8bc4\u8bba\u63a5\u53e3\u8fd4\u56de\uff1a\u65e0\u767b\u5f55\u4fe1\u606f\u6216\u767b\u5f55\u5df2\u5931\u6548\uff0c\u8bf7\u5728\u6d4f\u89c8\u5668\u4e2d\u91cd\u65b0\u767b\u5f55\u540e\u91cd\u8bd5\u3002';
+  }
+  if (normalizedCode === -1 || status === 406) {
+    return '\u8bc4\u8bba\u63a5\u53e3\u8bbf\u95ee\u53d7\u9650\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\uff0c\u5e76\u964d\u4f4e\u91c7\u96c6\u9891\u7387\u540e\u518d\u6293\u53d6\u3002';
+  }
+
+  if (normalizedCode || normalizedMessage) {
+    const suffix = normalizedMessage ? ` - ${normalizedMessage}` : '';
+    return `\u8bc4\u8bba\u63a5\u53e3\u8fd4\u56de\u9519\u8bef\uff1a${normalizedCode || 'unknown'}${suffix}\u3002`;
+  }
+
+  return '';
+}
+
+async function resolveCommentError({ comments, state, probeApi, onWarning } = {}) {
+  const list = Array.isArray(comments) ? comments : [];
+  const warning = buildCommentCompletionWarning({
+    totalCount: state?.totalCount,
+    actualCount: list.length
+  });
+  if (!warning) return '';
+
+  if (typeof probeApi === 'function') {
+    try {
+      const apiStatus = await probeApi();
+      const apiWarning = buildCommentApiFailureMessage(apiStatus || {});
+      if (apiWarning) {
+        const combined = `${warning} ${apiWarning}`;
+        if (typeof onWarning === 'function') {
+          onWarning(combined);
+        }
+        return combined;
+      }
+    } catch (_) {
+      // ignore api probe errors
+    }
+  }
+
+  if (typeof onWarning === 'function') {
+    onWarning(warning);
+  }
+  return warning;
+}
+
 function selectDebuggerTab(tabs, { requireXiaohongshu = true } = {}) {
   const list = Array.isArray(tabs) ? tabs : [];
   const xhsTab = list.find((tab) =>
@@ -155,6 +218,28 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const DEBUG_COMMENTS = process.env.XHS_DEBUG_COMMENTS === '1';
+const COMMENT_THROTTLE_MS = resolveNumberEnv(process.env.XHS_COMMENT_THROTTLE_MS, 300);
+const COMMENT_THROTTLE_JITTER_MS = resolveNumberEnv(process.env.XHS_COMMENT_THROTTLE_JITTER_MS, 200);
+const COMMENT_RETRY_COUNT = resolveNumberEnv(process.env.XHS_COMMENT_RETRY_COUNT, 2);
+const COMMENT_RETRY_BASE_MS = resolveNumberEnv(process.env.XHS_COMMENT_RETRY_BASE_MS, 400);
+const COMMENT_RETRY_MAX_MS = resolveNumberEnv(process.env.XHS_COMMENT_RETRY_MAX_MS, 2000);
+
+function logCommentDebug(label, state) {
+  if (!DEBUG_COMMENTS) return;
+  const payload = state && typeof state === 'object' ? state : {};
+  const snapshot = {
+    hasCommentsRoot: payload.hasCommentsRoot,
+    commentCount: payload.commentCount,
+    buttonCount: payload.buttonCount,
+    totalCount: payload.totalCount,
+    reachedEnd: payload.reachedEnd,
+    lastCommentId: payload.lastCommentId,
+    isLoading: payload.isLoading
+  };
+  console.log(`[XHS][comments] ${label}: ${JSON.stringify(snapshot)}`);
+}
+
 async function connectToChrome(options = {}) {
   const wsUrl = await getTabWsUrl(options);
   const ws = new WebSocket(wsUrl);
@@ -183,9 +268,13 @@ async function readNoteDetailReadyState(ws) {
     (function() {
       const root = document.querySelector('#noteContainer') || document;
       const titleEl = root.querySelector('#detail-title, .note-content .title, [class*="detail"] [class*="title"], h1');
+      const state = window.__INITIAL_STATE__ || {};
+      const noteMap = state.note && state.note.noteDetailMap ? state.note.noteDetailMap : {};
+      const hasStateNote = Object.keys(noteMap).some((key) => noteMap[key] && noteMap[key].note);
       return JSON.stringify({
         url: location.href,
-        title: titleEl ? titleEl.textContent.trim() : ''
+        title: titleEl ? titleEl.textContent.trim() : '',
+        hasStateNote
       });
     })()
   `);
@@ -202,7 +291,10 @@ async function waitForNoteDetailReady({
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     await wait(intervalMs);
     currentState = await readState();
-    if (isNoteDetailUrl(currentState.url) && String(currentState.title || '').trim()) {
+    if (
+      isNoteDetailUrl(currentState.url) &&
+      (String(currentState.title || '').trim() || currentState.hasStateNote)
+    ) {
       return { ready: true, state: currentState };
     }
   }
@@ -245,14 +337,100 @@ async function readCommentExpansionState(ws) {
         totalCount: totalMatch ? Number(totalMatch[1]) : 0,
         reachedEnd: text.includes('THE END'),
         lastCommentId,
-        isLoading: /加载中/.test(text)
+                isLoading: /\\u52a0\\u8f7d\\u4e2d/.test(text)
       });
     })()
   `);
 }
 
-async function clickNextCommentExpander(ws) {
-  const result = await evaluateJson(ws, `
+async function readCommentExpansionStateWithRetry({
+  readState,
+  wait = sleep,
+  attempts = 6,
+  intervalMs = 500
+} = {}) {
+  if (typeof readState !== 'function') {
+    throw new Error('readState is required');
+  }
+
+  let currentState = {};
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    currentState = await readState();
+    if (
+      currentState &&
+      (
+        currentState.totalCount > 0 ||
+        currentState.commentCount > 0 ||
+        currentState.buttonCount > 0 ||
+        currentState.reachedEnd ||
+        (currentState.hasCommentsRoot && !currentState.isLoading)
+      )
+    ) {
+      return currentState;
+    }
+
+    if (attempt < attempts - 1) {
+      await wait(intervalMs);
+    }
+  }
+
+  return currentState || {};
+}
+
+async function clickNextCommentExpander(ws, options = {}) {
+  const evaluate = options.evaluate || ((expression) => evaluateJson(ws, expression));
+  const wait = options.wait || sleep;
+  const attempts = Number.isFinite(options.attempts) ? Math.max(1, options.attempts) : 2;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const result = await evaluate(`
+      (function() {
+        const root = document.querySelector('#noteContainer') || document;
+        const commentsRoot = root.querySelector('.comments-container, .comments-el');
+        if (!commentsRoot) {
+          return JSON.stringify({ clicked: false });
+        }
+
+        const primary = commentsRoot.querySelector('.show-more')
+          || commentsRoot.querySelector('[class*="show-more"]');
+        if (primary) {
+          primary.scrollIntoView({ block: 'center' });
+          primary.click();
+          return JSON.stringify({ clicked: true });
+        }
+
+        const nodes = Array.from(commentsRoot.querySelectorAll('button, a, div, span'));
+        for (const node of nodes) {
+          const text = (node.textContent || '').trim();
+          if (!text || text.length > 8) continue;
+          if (/\u56de\u590d/.test(text)) continue;
+          if (/\u66f4\u591a|\u5c55\u5f00|\u67e5\u770b|more|view/i.test(text)) {
+            node.scrollIntoView({ block: 'center' });
+            node.click();
+            return JSON.stringify({ clicked: true });
+          }
+        }
+
+        return JSON.stringify({ clicked: false });
+      })()
+    `);
+
+    const payload = typeof result === 'string'
+      ? JSON.parse(result || '{}')
+      : (result || {});
+    if (payload.clicked) return true;
+    if (attempt < attempts - 1) {
+      await wait(200);
+    }
+  }
+
+  return false;
+}
+
+async function clickNextReplyExpander(ws, options = {}) {
+  const evaluate = options.evaluate || ((expression) => evaluateJson(ws, expression));
+  const result = await evaluate(`
     (function() {
       const root = document.querySelector('#noteContainer') || document;
       const commentsRoot = root.querySelector('.comments-container, .comments-el');
@@ -260,28 +438,87 @@ async function clickNextCommentExpander(ws) {
         return JSON.stringify({ clicked: false });
       }
 
-      commentsRoot.scrollIntoView({ block: 'end' });
-      const button = commentsRoot.querySelector('.show-more');
-      if (!button) {
-        return JSON.stringify({ clicked: false });
+      const nodes = Array.from(
+        commentsRoot.querySelectorAll('.comment-item:not(.comment-item-sub) .reply.icon-container, .comment-item:not(.comment-item-sub) .reply')
+      );
+
+      for (const node of nodes) {
+        const text = (node.textContent || '').trim();
+                const match = text.match(/[0-9\uFF10-\uFF19]+/);
+        if (!match) continue;
+        const normalized = match[0].replace(/[\uFF10-\uFF19]/g, (ch) => String(ch.charCodeAt(0) - 0xFF10));
+        node.scrollIntoView({ block: 'center' });
+        node.click();
+        return JSON.stringify({ clicked: true, count: Number(normalized) });
       }
 
-      button.scrollIntoView({ block: 'center' });
-      button.click();
-      return JSON.stringify({ clicked: true });
+      return JSON.stringify({ clicked: false });
     })()
   `);
 
-  return !!result.clicked;
+  const payload = typeof result === 'string'
+    ? JSON.parse(result || '{}')
+    : (result || {});
+  return !!payload.clicked;
 }
 
-async function scrollMoreComments(ws) {
-  const result = await evaluateJson(ws, `
+async function expandAllReplies(ws, maxRounds = 8, options = {}) {
+  const readState = options.readState || (() => readCommentExpansionState(ws));
+  const clickNext = options.clickNext || (() => clickNextReplyExpander(ws));
+  const waitForStateChange = options.waitForStateChange || ((params) => waitForCommentStateChange(params));
+  const throttleMs = Number.isFinite(options.throttleMs) ? options.throttleMs : COMMENT_THROTTLE_MS;
+  const throttleJitterMs = Number.isFinite(options.throttleJitterMs)
+    ? options.throttleJitterMs
+    : COMMENT_THROTTLE_JITTER_MS;
+  const wait = options.wait || sleep;
+  const throttle = async () => {
+    const delay = resolveDelayMs({ baseMs: throttleMs, jitterMs: throttleJitterMs });
+    if (delay > 0) {
+      await wait(delay);
+    }
+  };
+
+  let currentState = await readState();
+
+  for (let round = 0; round < maxRounds; round += 1) {
+    const clicked = await clickNext();
+    if (!clicked) break;
+
+    const result = await waitForStateChange({
+      previousState: currentState,
+      readState,
+      wait,
+      attempts: options.attempts || 6,
+      intervalMs: options.intervalMs || 300
+    });
+
+    currentState = result.state;
+    if (!result.changed) break;
+    await throttle();
+  }
+}
+
+async function scrollMoreComments(ws, options = {}) {
+  const evaluate = options.evaluate || ((expression) => evaluateJson(ws, expression));
+  const result = await evaluate(`
     (function() {
-      const root = document.querySelector('#noteContainer') || document;
+      const pageRoot = document.querySelector('#noteContainer') || document.scrollingElement || document.documentElement || document.body;
+      const root = pageRoot || document;
       const commentsRoot = root.querySelector('.comments-container, .comments-el');
+      let scrolled = false;
+      let scrolledRoot = false;
+
       if (!commentsRoot) {
-        return JSON.stringify({ scrolled: false });
+        if (pageRoot && pageRoot.scrollHeight > pageRoot.clientHeight) {
+          if (typeof pageRoot.scrollTo === 'function') {
+            pageRoot.scrollTo({ top: pageRoot.scrollHeight, behavior: 'instant' });
+          }
+          pageRoot.scrollTop = pageRoot.scrollHeight;
+          scrolledRoot = true;
+        }
+        window.scrollBy(0, Math.max(480, Math.floor(window.innerHeight * 0.9)));
+        scrolled = scrolled || scrolledRoot;
+        return JSON.stringify({ scrolled, scrolledRoot });
       }
 
       const target =
@@ -298,13 +535,25 @@ async function scrollMoreComments(ws) {
         target.scrollTo({ top: target.scrollHeight, behavior: 'instant' });
       }
       target.scrollTop = target.scrollHeight;
+      scrolled = true;
+
+      if (pageRoot && pageRoot.scrollHeight > pageRoot.clientHeight) {
+        if (typeof pageRoot.scrollTo === 'function') {
+          pageRoot.scrollTo({ top: pageRoot.scrollHeight, behavior: 'instant' });
+        }
+        pageRoot.scrollTop = pageRoot.scrollHeight;
+        scrolledRoot = true;
+      }
       window.scrollBy(0, Math.max(480, Math.floor(window.innerHeight * 0.9)));
 
-      return JSON.stringify({ scrolled: true });
+      return JSON.stringify({ scrolled: scrolled || scrolledRoot, scrolledRoot });
     })()
   `);
 
-  return !!result.scrolled;
+  const payload = typeof result === 'string'
+    ? JSON.parse(result || '{}')
+    : (result || {});
+  return Boolean(payload.scrolled || payload.scrolledRoot);
 }
 
 function shouldLoadMoreComments(state) {
@@ -358,8 +607,20 @@ async function ensureCommentsReady(ws, maxRounds = 4, options = {}) {
   const readState = options.readState || (() => readCommentExpansionState(ws));
   const scrollMore = options.scrollMore || (() => scrollMoreComments(ws));
   const waitForStateChange = options.waitForStateChange || ((params) => waitForCommentStateChange(params));
+  const throttleMs = Number.isFinite(options.throttleMs) ? options.throttleMs : COMMENT_THROTTLE_MS;
+  const throttleJitterMs = Number.isFinite(options.throttleJitterMs)
+    ? options.throttleJitterMs
+    : COMMENT_THROTTLE_JITTER_MS;
+  const wait = options.wait || sleep;
+  const throttle = async () => {
+    const delay = resolveDelayMs({ baseMs: throttleMs, jitterMs: throttleJitterMs });
+    if (delay > 0) {
+      await wait(delay);
+    }
+  };
 
   let currentState = await readState();
+  logCommentDebug('ready:init', currentState);
 
   for (let round = 0; round < maxRounds; round += 1) {
     if (!shouldPrimeComments(currentState)) break;
@@ -376,7 +637,9 @@ async function ensureCommentsReady(ws, maxRounds = 4, options = {}) {
     });
 
     currentState = result.state;
+    logCommentDebug(`ready:round:${round + 1}:${result.changed ? 'changed' : 'same'}`, currentState);
     if (!result.changed) break;
+    await throttle();
   }
 
   return currentState;
@@ -387,15 +650,33 @@ async function expandAllComments(ws, maxRounds = 12, options = {}) {
   const clickNext = options.clickNext || (() => clickNextCommentExpander(ws));
   const scrollMore = options.scrollMore || (() => scrollMoreComments(ws));
   const waitForStateChange = options.waitForStateChange || ((params) => waitForCommentStateChange(params));
+  const throttleMs = Number.isFinite(options.throttleMs) ? options.throttleMs : COMMENT_THROTTLE_MS;
+  const throttleJitterMs = Number.isFinite(options.throttleJitterMs)
+    ? options.throttleJitterMs
+    : COMMENT_THROTTLE_JITTER_MS;
+  const wait = options.wait || sleep;
+  const throttle = async () => {
+    const delay = resolveDelayMs({ baseMs: throttleMs, jitterMs: throttleJitterMs });
+    if (delay > 0) {
+      await wait(delay);
+    }
+  };
+  const maxNoChangeRounds = Number.isFinite(options.maxNoChangeRounds)
+    ? Math.max(0, options.maxNoChangeRounds)
+    : 2;
+  let noChangeRounds = 0;
 
   let currentState = await ensureCommentsReady(ws, options.readyAttempts || 4, {
     readState,
     scrollMore,
     waitForStateChange,
-    wait: options.wait,
+    wait,
     attempts: options.attempts,
-    intervalMs: options.intervalMs
+    intervalMs: options.intervalMs,
+    throttleMs,
+    throttleJitterMs
   });
+  logCommentDebug('expand:init', currentState);
 
   for (let round = 0; round < maxRounds; round += 1) {
     if (!shouldLoadMoreComments(currentState)) break;
@@ -411,15 +692,36 @@ async function expandAllComments(ws, maxRounds = 12, options = {}) {
     const result = await waitForStateChange({
       previousState: currentState,
       readState,
-      wait: options.wait || sleep,
+      wait,
       attempts: options.attempts || 6,
       intervalMs: options.intervalMs || 300
     });
 
     currentState = result.state;
-    if (!result.changed && !shouldLoadMoreComments(currentState)) break;
-    if (!result.changed) break;
+    logCommentDebug(`expand:round:${round + 1}:${result.changed ? 'changed' : 'same'}`, currentState);
+    if (result.changed) {
+      noChangeRounds = 0;
+      await throttle();
+      continue;
+    }
+
+    noChangeRounds += 1;
+    if (!shouldLoadMoreComments(currentState)) break;
+    if (noChangeRounds >= maxNoChangeRounds) break;
+    await throttle();
   }
+  if (options.expandReplies !== false) {
+    await expandAllReplies(ws, options.replyRounds || 8, {
+      readState,
+      waitForStateChange,
+      wait,
+      attempts: options.attempts,
+      intervalMs: options.intervalMs,
+      throttleMs,
+      throttleJitterMs
+    });
+  }
+
 }
 
 async function extractNoteComments(ws) {
@@ -529,8 +831,83 @@ async function extractNoteDetail(ws) {
   delete result.stateNote;
 
   try {
-    result.comments = await extractNoteComments(ws);
+    result.comments = await retryAsync(
+      () => extractNoteComments(ws),
+      {
+        retries: COMMENT_RETRY_COUNT,
+        baseDelayMs: COMMENT_RETRY_BASE_MS,
+        maxDelayMs: COMMENT_RETRY_MAX_MS,
+        jitterMs: COMMENT_THROTTLE_JITTER_MS,
+        wait: sleep,
+        onRetry: (error, attempt, delayMs) => {
+          logWarn(`[XHS][comments] retry ${attempt} after ${delayMs}ms: ${error.message || error}`);
+        }
+      }
+    );
     result.commentError = '';
+    try {
+      const state = await readCommentExpansionStateWithRetry({
+        readState: () => readCommentExpansionState(ws),
+        wait: sleep,
+        attempts: 6,
+        intervalMs: 500
+      });
+      const warning = await resolveCommentError({
+        comments: result.comments,
+        state,
+        probeApi: async () => {
+          const response = await send(ws, 'Runtime.evaluate', {
+            expression: `
+              (async function() {
+                const state = window.__INITIAL_STATE__ || {};
+                const noteMap = state.note && state.note.noteDetailMap ? state.note.noteDetailMap : {};
+                const noteId = Object.keys(noteMap).find((key) => noteMap[key] && noteMap[key].note) || '';
+                const commentState = noteId && noteMap[noteId] ? noteMap[noteId].comments : null;
+                const cursor = commentState && commentState.cursor ? commentState.cursor : '';
+                const xsecToken = new URL(location.href).searchParams.get('xsec_token') || '';
+                if (!noteId) {
+                  return JSON.stringify({ status: 0, code: 0, message: '', success: true });
+                }
+                const api = 'https://edith.xiaohongshu.com/api/sns/web/v2/comment/page';
+                const params = new URLSearchParams({
+                  note_id: noteId,
+                  cursor,
+                  top_comment_id: '',
+                  image_formats: 'jpg,webp',
+                  xsec_token: xsecToken
+                });
+                const url = api + '?' + params.toString();
+                const res = await fetch(url, { credentials: 'include' });
+                let body = {};
+                try {
+                  body = await res.json();
+                } catch (error) {
+                  body = { message: await res.text() };
+                }
+                return JSON.stringify({
+                  status: res.status,
+                  code: body.code,
+                  message: body.msg || body.message || '',
+                  success: body.success
+                });
+              })()
+            `,
+            returnByValue: true,
+            awaitPromise: true
+          });
+
+          return JSON.parse(response?.result?.value || '{}');
+        },
+        onWarning: (message) => {
+          logWarn(`[XHS][comments] ${message}`);
+        }
+      });
+      if (warning) {
+        result.commentError = warning;
+      }
+    } catch (_) {
+      // ignore completion warning errors
+    }
   } catch (error) {
     result.comments = [];
     result.commentError = error && error.message ? error.message : '\u8bc4\u8bba\u533a\u91c7\u96c6\u5931\u8d25';
@@ -547,11 +924,15 @@ function extractNoteIdFromUrl(url) {
 module.exports = {
   buildBoardNote,
   buildSingleNote,
+  buildCommentApiFailureMessage,
+  buildCommentCompletionWarning,
   clickNextCommentExpander,
+  clickNextReplyExpander,
   connectToChrome,
   ensureCommentsReady,
   extractImageUrlsFromStateNote,
   expandAllComments,
+  expandAllReplies,
   extractNoteComments,
   extractNoteDetail,
   extractNoteIdFromUrl,
@@ -559,7 +940,9 @@ module.exports = {
   isNoteDetailUrl,
   navigateToUrl,
   readCommentExpansionState,
+  readCommentExpansionStateWithRetry,
   readNoteDetailReadyState,
+  resolveCommentError,
   selectDebuggerTab,
   send,
   sleep,
@@ -567,3 +950,4 @@ module.exports = {
   waitForNoteDetailReady,
   waitForCommentStateChange
 };
+

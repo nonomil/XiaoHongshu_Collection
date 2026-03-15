@@ -101,7 +101,10 @@ function serveStatic(request, response, uiDir = UI_DIR) {
     return;
   }
 
-  response.writeHead(200, { 'Content-Type': getContentType(filepath) });
+  response.writeHead(200, {
+    'Content-Type': getContentType(filepath),
+    'Cache-Control': 'no-store'
+  });
   fs.createReadStream(filepath).pipe(response);
 }
 
@@ -167,6 +170,18 @@ function resolveUiConfig(configPath, payload) {
 
 function sendNdjson(response, payload) {
   response.write(`${JSON.stringify(payload)}\n`);
+}
+
+function summarizeErrorMessage(error) {
+  const logs = Array.isArray(error?.logs) ? error.logs : [];
+  if (logs.length === 0) {
+    return error?.message || 'Internal Server Error';
+  }
+
+  const loginLine = logs.find((line) => /登录|账号异常|无登录/.test(line));
+  if (loginLine) return loginLine;
+
+  return logs[logs.length - 1] || error?.message || 'Internal Server Error';
 }
 
 async function runSaveLinksWithProgress({ text, uiConfig, onEvent }) {
@@ -427,7 +442,7 @@ function createUiServer({
     } catch (error) {
       sendJson(response, error.statusCode || 500, {
         ok: false,
-        error: error.message || 'Internal Server Error'
+        error: summarizeErrorMessage(error)
       });
     }
   });
@@ -461,6 +476,7 @@ module.exports = {
   resolveStaticFile,
   runCollectionExport,
   runNodeScript,
+  summarizeErrorMessage,
   sendJson,
   startUiServer
 };
