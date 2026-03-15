@@ -826,15 +826,41 @@ async function scrollMoreComments(ws, options = {}) {
       let scrolled = false;
       let scrolledRoot = false;
 
+      function scrollToBottom(el) {
+        if (!el) return false;
+        const top = el.scrollHeight || 0;
+        try {
+          if (typeof el.scrollTo === 'function') {
+            el.scrollTo({ top, behavior: 'auto' });
+          }
+        } catch (_) {
+          // ignore scrollTo failures
+        }
+        el.scrollTop = top;
+        // Even if scrollTop does not change (already at bottom), keep returning true so callers
+        // continue waiting for lazy-loaded comments to render.
+        return true;
+      }
+
+      function nudgeScroll(el) {
+        if (!el) return false;
+        const scrollHeight = el.scrollHeight || 0;
+        const clientHeight = el.clientHeight || 0;
+        const maxTop = Math.max(0, scrollHeight - clientHeight);
+        if (maxTop <= 0) return false;
+        const before = el.scrollTop || 0;
+        const nearBottom = before >= (maxTop - 4);
+        if (!nearBottom) return false;
+
+        const upTop = Math.max(0, maxTop - 120);
+        el.scrollTop = upTop;
+        el.scrollTop = maxTop;
+        return (el.scrollTop || 0) !== before;
+      }
+
       if (!commentsRoot) {
         const scrollTarget = noteScroller || pageRoot;
-        if (scrollTarget && scrollTarget.scrollHeight > scrollTarget.clientHeight) {
-          if (typeof scrollTarget.scrollTo === 'function') {
-            scrollTarget.scrollTo({ top: scrollTarget.scrollHeight, behavior: 'instant' });
-          }
-          scrollTarget.scrollTop = scrollTarget.scrollHeight;
-          scrolledRoot = true;
-        }
+        scrolledRoot = scrollToBottom(scrollTarget) || nudgeScroll(scrollTarget);
         window.scrollBy(0, Math.max(480, Math.floor(window.innerHeight * 0.9)));
         scrolled = scrolled || scrolledRoot;
         return JSON.stringify({ scrolled, scrolledRoot });
@@ -844,27 +870,21 @@ async function scrollMoreComments(ws, options = {}) {
         commentsRoot.querySelector('.comment-list, .comments-list, [class*="comment-list"], [class*="comments-list"]') ||
         commentsRoot;
       const lastItem = commentsRoot.querySelector('.comment-item:last-child');
-      const scrollTarget = noteScroller || target;
 
       commentsRoot.scrollIntoView({ block: 'end' });
       if (lastItem) {
         lastItem.scrollIntoView({ block: 'end' });
       }
 
-      if (typeof scrollTarget.scrollTo === 'function') {
-        scrollTarget.scrollTo({ top: scrollTarget.scrollHeight, behavior: 'instant' });
+      const scrollCandidates = [target, noteScroller].filter(Boolean);
+      for (const candidate of scrollCandidates) {
+        const didScroll = scrollToBottom(candidate);
+        const didNudge = !didScroll && nudgeScroll(candidate);
+        scrolled = scrolled || didScroll || didNudge;
       }
-      scrollTarget.scrollTop = scrollTarget.scrollHeight;
-      scrolled = true;
 
       const rootScrollTarget = noteScroller || pageRoot;
-      if (rootScrollTarget && rootScrollTarget.scrollHeight > rootScrollTarget.clientHeight) {
-        if (typeof rootScrollTarget.scrollTo === 'function') {
-          rootScrollTarget.scrollTo({ top: rootScrollTarget.scrollHeight, behavior: 'instant' });
-        }
-        rootScrollTarget.scrollTop = rootScrollTarget.scrollHeight;
-        scrolledRoot = true;
-      }
+      scrolledRoot = scrollToBottom(rootScrollTarget) || nudgeScroll(rootScrollTarget);
       window.scrollBy(0, Math.max(480, Math.floor(window.innerHeight * 0.9)));
 
       return JSON.stringify({ scrolled: scrolled || scrolledRoot, scrolledRoot });
