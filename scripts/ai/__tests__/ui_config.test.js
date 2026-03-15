@@ -4,8 +4,9 @@ const fs = require('fs');
 const path = require('path');
 
 const { loadUiConfig, mergeUiConfig, saveUiConfig } = require('../../lib/ui_config');
+const { resolveTestTmpDir } = require('./test_tmp');
 
-const tmpDir = path.join(__dirname, '..', '__tmp__', 'ui-config');
+const tmpDir = resolveTestTmpDir('ui-config');
 const cfgPath = path.join(tmpDir, 'ui.json');
 
 function resetTmp() {

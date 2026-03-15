@@ -4,8 +4,9 @@ const fs = require('fs');
 const path = require('path');
 
 const { syncInbox } = require('../../lib/inbox_sync');
+const { resolveTestTmpDir } = require('./test_tmp');
 
-const tmpDir = path.join(__dirname, '..', '__tmp__', 'inbox-sync');
+const tmpDir = resolveTestTmpDir('inbox-sync');
 const pushbulletConfigPath = path.join(tmpDir, 'pushbullet.json');
 
 function resetTmp() {

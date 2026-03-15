@@ -1,6 +1,6 @@
 ﻿const { test } = require('node:test');
 const assert = require('node:assert/strict');
-
+const path = require('node:path');
 const {
   buildCollectionThrottle,
   buildCollectionReportMarkdown,
@@ -10,6 +10,7 @@ const {
   buildNoteFailureEntry,
   ensureLoggedIn
 } = require('../../extract_v4');
+const { createTempDir } = require('./test_tmp');
 
 test('buildCollectionThrottle waits with jittered delay', async () => {
   const waits = [];
@@ -108,10 +109,7 @@ test('ensureLoggedIn passes when account exists', () => {
 });
 
 test('writeCollectionReport writes markdown report', () => {
-  const fs = require('node:fs');
-  const os = require('node:os');
-  const path = require('node:path');
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-report-'));
+  const fs = require('node:fs');  const tmp = createTempDir('xhs-report-');
   const reportPath = writeCollectionReport({
     outputRoot: tmp,
     rawPath: path.join(tmp, 'raw_notes.json'),

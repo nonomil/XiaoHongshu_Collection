@@ -4,8 +4,9 @@ const fs = require('fs');
 const path = require('path');
 
 const { createInboxStore } = require('../../lib/inbox_store');
+const { resolveTestTmpDir } = require('./test_tmp');
 
-const tmpDir = path.join(__dirname, '..', '__tmp__', 'inbox-store');
+const tmpDir = resolveTestTmpDir('inbox-store');
 const filePath = path.join(tmpDir, 'inbox.jsonl');
 
 function resetTmp() {

@@ -5,6 +5,7 @@ const http = require('http');
 const path = require('path');
 
 const { createUiServer } = require('../../ui_server');
+const { createTempDir } = require('./test_tmp');
 
 const activeServers = new Set();
 
@@ -237,7 +238,7 @@ test('save-collection api surfaces login-related errors in response', async () =
 });
 
 test('ui config api returns defaults when missing', async () => {
-  const tempDir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-ui-config-'));
+  const tempDir = createTempDir('xhs-ui-config-');
   const uiConfigPath = path.join(tempDir, 'ui.json');
   const { baseUrl } = await startServer({ uiConfigPath });
 
@@ -250,7 +251,7 @@ test('ui config api returns defaults when missing', async () => {
 });
 
 test('ui config api persists updates', async () => {
-  const tempDir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-ui-config-'));
+  const tempDir = createTempDir('xhs-ui-config-');
   const uiConfigPath = path.join(tempDir, 'ui.json');
   const { baseUrl } = await startServer({ uiConfigPath });
 

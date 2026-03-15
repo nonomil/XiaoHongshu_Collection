@@ -4,8 +4,9 @@ const fs = require('fs');
 const path = require('path');
 
 const { loadInboxUrls, saveInboxUrls } = require('../../lib/inbox_save');
+const { resolveTestTmpDir } = require('./test_tmp');
 
-const tmpDir = path.join(__dirname, '..', '__tmp__', 'inbox-save');
+const tmpDir = resolveTestTmpDir('inbox-save');
 const inboxPath = path.join(tmpDir, 'inbox.jsonl');
 const pushbulletConfigPath = path.join(tmpDir, 'pushbullet.json');
 

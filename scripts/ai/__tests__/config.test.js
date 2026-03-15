@@ -1,7 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 
 const {
@@ -9,9 +8,10 @@ const {
   loadVisionOcrConfig,
   resolveProjectPaths
 } = require('../../lib/config');
+const { createTempDir } = require('./test_tmp');
 
 function createTempProject() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-config-'));
+  const root = createTempDir('xhs-config-');
   fs.mkdirSync(path.join(root, 'config'), { recursive: true });
   return root;
 }

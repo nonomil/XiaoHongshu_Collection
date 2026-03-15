@@ -4,8 +4,9 @@ const fs = require('fs');
 const path = require('path');
 
 const { loadPushbulletConfig } = require('../../lib/pushbullet_config');
+const { resolveTestTmpDir } = require('./test_tmp');
 
-const tmpDir = path.join(__dirname, '..', '__tmp__', 'pushbullet-config');
+const tmpDir = resolveTestTmpDir('pushbullet-config');
 const configPath = path.join(tmpDir, 'pushbullet.json');
 
 function resetTmp() {

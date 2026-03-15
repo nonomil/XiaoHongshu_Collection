@@ -1,7 +1,6 @@
 ﻿const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 
 const {
@@ -19,6 +18,7 @@ const {
   writeCommentArchive,
   writeSingleNoteMarkdown
 } = require('../../lib/note_export');
+const { createTempDir } = require('./test_tmp');
 
 test('buildNotePaths writes single note into 单条笔记保存', () => {
   const paths = buildNotePaths({
@@ -219,7 +219,7 @@ test('getUsefulComments applies AI second-pass filtering when available', async 
 });
 
 test('writeSingleNoteMarkdown overwrites the same path for the same note', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-note-export-'));
+  const tempRoot = createTempDir('xhs-note-export-');
   const note = {
     title: '同一条笔记',
     noteId: 'same123',
@@ -253,7 +253,7 @@ test('writeSingleNoteMarkdown overwrites the same path for the same note', () =>
 
 
 test('writeSingleNoteMarkdown adds suffix when content differs with content-aware strategy', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-note-export-'));
+  const tempRoot = createTempDir('xhs-note-export-');
   const note = {
     title: 'Conflict Strategy',
     noteId: 'conflict123',
@@ -287,7 +287,7 @@ test('writeSingleNoteMarkdown adds suffix when content differs with content-awar
   assert.match(secondPath, /-1\.md$/);
 });
 test('writeSingleNoteMarkdown writes UTF-8 BOM for Windows-compatible markdown display', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-note-export-'));
+  const tempRoot = createTempDir('xhs-note-export-');
   const note = {
     title: '编码测试',
     noteId: 'bom123',
@@ -315,7 +315,7 @@ test('writeSingleNoteMarkdown writes UTF-8 BOM for Windows-compatible markdown d
 });
 
 test('writeCommentArchive writes raw comments json', () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-comment-archive-'));
+  const tempRoot = createTempDir('xhs-comment-archive-');
   const archivePath = writeCommentArchive({
     outputRoot: tempRoot,
     noteId: 'note123',
@@ -330,7 +330,7 @@ test('writeCommentArchive writes raw comments json', () => {
 });
 
 test('processSingleNoteExport returns a stable result shape when comments exist', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-process-export-'));
+  const tempRoot = createTempDir('xhs-process-export-');
   const imagesRoot = path.join(tempRoot, '_images');
   const configPath = path.join(tempRoot, 'openrouter.json');
   const visionConfigPath = path.join(tempRoot, 'vision-ocr.json');
@@ -374,7 +374,7 @@ test('processSingleNoteExport returns a stable result shape when comments exist'
 });
 
 test('processSingleNoteExport returns a stable result shape when comments are absent', async () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xhs-process-export-'));
+  const tempRoot = createTempDir('xhs-process-export-');
   const imagesRoot = path.join(tempRoot, '_images');
   const configPath = path.join(tempRoot, 'openrouter.json');
   const visionConfigPath = path.join(tempRoot, 'vision-ocr.json');

@@ -8,8 +8,9 @@ const {
   isSameBody,
   resolveMarkdownConflict
 } = require('../../lib/output_naming');
+const { resolveTestTmpDir } = require('./test_tmp');
 
-const tmpDir = path.join(__dirname, '..', '__tmp__', 'output-naming');
+const tmpDir = resolveTestTmpDir('output-naming');
 const filePath = path.join(tmpDir, 'note.md');
 
 function resetTmp() {
