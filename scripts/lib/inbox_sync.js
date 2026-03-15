@@ -18,6 +18,7 @@ function resolveInboxPath(projectDir, inboxPath) {
 
 async function syncInbox({
   pushbulletConfigPath = DEFAULT_PUSHBULLET_CONFIG_PATH,
+  mode = 'latest',
   providerFactory,
   storeFactory
 } = {}) {
@@ -33,7 +34,8 @@ async function syncInbox({
   const provider = providerFactory
     ? providerFactory(config)
     : createPushbulletProvider({ accessToken: config.accessToken });
-  const since = Number(config.lastModified || 0);
+  const normalizedMode = mode === 'all' ? 'all' : 'latest';
+  const since = normalizedMode === 'all' ? 0 : Number(config.lastModified || 0);
   const { items, nextModified } = await provider.pull({ since });
   const inboxPath = resolveInboxPath(PATHS.projectDir, config.inboxPath);
   const store = storeFactory

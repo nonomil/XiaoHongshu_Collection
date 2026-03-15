@@ -424,9 +424,11 @@ function createUiServer({
       if (request.method === 'POST' && url.pathname === '/api/inbox/sync') {
         const payload = await readJsonBody(request);
         const uiConfig = resolveUiConfig(uiConfigPath, payload);
+        const mode = payload && payload.mode === 'all' ? 'all' : 'latest';
         const result = await runExclusive('inbox-sync', () => runInbox({
           uiConfigPath,
-          uiConfig
+          uiConfig,
+          mode
         }));
         sendJson(response, 200, {
           ok: true,

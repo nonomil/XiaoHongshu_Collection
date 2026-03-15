@@ -35,3 +35,30 @@ test('syncInbox updates lastModified in pushbullet config', async () => {
   const stored = JSON.parse(fs.readFileSync(pushbulletConfigPath, 'utf-8'));
   assert.equal(stored.lastModified, 10);
 });
+
+test('syncInbox uses since=0 for full sync', async () => {
+  resetTmp();
+  fs.writeFileSync(pushbulletConfigPath, JSON.stringify({
+    enabled: true,
+    accessToken: 'token',
+    lastModified: 999,
+    inboxPath: 'data/inbox.jsonl'
+  }, null, 2), 'utf-8');
+
+  let capturedSince = null;
+  await syncInbox({
+    pushbulletConfigPath,
+    mode: 'all',
+    providerFactory: () => ({
+      pull: async ({ since }) => {
+        capturedSince = since;
+        return { items: [], nextModified: 10 };
+      }
+    }),
+    storeFactory: () => ({
+      append: async () => ({ added: 0, skipped: 0 })
+    })
+  });
+
+  assert.equal(capturedSince, 0);
+});
