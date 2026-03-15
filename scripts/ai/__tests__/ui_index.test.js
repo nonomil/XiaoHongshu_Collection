@@ -14,5 +14,6 @@ test('index.html contains external inbox entry card copy', () => {
   const html = readIndexHtml();
   assert.match(html, /入口\s*03/);
   assert.match(html, /外部入口/);
-  assert.match(html, /同步外部收件箱/);
+  assert.match(html, /同步最新/);
+  assert.match(html, /同步全部/);
 });
