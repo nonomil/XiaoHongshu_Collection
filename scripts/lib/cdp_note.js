@@ -1244,10 +1244,11 @@ async function extractNoteDetail(ws) {
         intervalMs: 500
       });
       result.commentTotal = Number(state?.totalCount || 0);
+      const shouldProbeApi = process.env.XHS_COMMENT_PROBE_API === '1';
       const warning = await resolveCommentError({
         comments: result.comments,
         state,
-        probeApi: async () => {
+        probeApi: shouldProbeApi ? async () => {
           const response = await send(ws, 'Runtime.evaluate', {
             expression: `
               (async function() {
@@ -1289,7 +1290,7 @@ async function extractNoteDetail(ws) {
           });
 
           return JSON.parse(response?.result?.value || '{}');
-        },
+        } : undefined,
         onWarning: (message) => {
           logWarn(`[XHS][comments] ${message}`);
         }
