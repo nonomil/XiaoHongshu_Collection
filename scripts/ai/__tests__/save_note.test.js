@@ -99,7 +99,7 @@ test('saveModesSequentially aggregates results without aborting after a failure'
   assert.deepEqual(Object.keys(summary).sort(), ['failureCount', 'results', 'successCount', 'total']);
   assert.deepEqual(
     Object.keys(summary.results[0]).sort(),
-    ['canonicalUrl', 'filepath', 'index', 'input', 'navigationUrl', 'noteId', 'status']
+    ['canonicalUrl', 'filepath', 'index', 'input', 'navigationUrl', 'noteId', 'status', 'warnings']
   );
   assert.deepEqual(
     Object.keys(summary.results[1]).sort(),
