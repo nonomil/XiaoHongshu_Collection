@@ -79,6 +79,28 @@ test('generateMarkdown includes content, OCR, image, and useful comment sections
   assert.match(markdown, /\*来源：小红书 \[@作者\]\(https:\/\/www\.xiaohongshu\.com\/discovery\/item\/abc123\)\*/);
 });
 
+test('generateMarkdown prefers sourceUrl when provided', () => {
+  const markdown = generateMarkdown({
+    note: {
+      title: '标题',
+      noteId: 'abc123',
+      author: '作者',
+      collection: '单条笔记保存',
+      date: '2026-03-08',
+      tags: [],
+      images: [],
+      sourceUrl: 'http://xhslink.com/o/short1'
+    },
+    content: '正文内容',
+    ocrTexts: [],
+    summary: '摘要',
+    tags: ['标签1', '标签2', '标签3']
+  });
+
+  assert.match(markdown, /source: "http:\/\/xhslink\.com\/o\/short1"/);
+  assert.match(markdown, /\*来源：小红书 \[@作者\]\(http:\/\/xhslink\.com\/o\/short1\)\*/);
+});
+
 test('generateMarkdown renders comment collection failure without blocking note body', () => {
   const markdown = generateMarkdown({
     note: {

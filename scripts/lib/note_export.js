@@ -50,6 +50,16 @@ function cleanDate(dateStr) {
   return value;
 }
 
+function resolveSourceUrl(note) {
+  if (!note || typeof note !== 'object') return '';
+  const preferred = note.sourceUrl || note.navigationUrl || note.noteUrl || note.canonicalUrl;
+  if (preferred) return String(preferred);
+  if (note.noteId) {
+    return `https://www.xiaohongshu.com/discovery/item/${note.noteId}`;
+  }
+  return '';
+}
+
 function buildNotePaths({ outputRoot, collection, title, noteId, maxTitleLength }) {
   const boardDir = path.join(outputRoot, collection);
   const safeName = sanitizeFilename(title || `note_${noteId}`, maxTitleLength) || `note_${noteId}`;
@@ -313,7 +323,7 @@ function generateMarkdown({ note, content, ocrTexts, summary, tags, commentSumma
   const author = cleanAuthor(note.author);
   const date = cleanDate(note.date);
   const shortNote = cleanedContent.length < 50;
-  const sourceUrl = `https://www.xiaohongshu.com/discovery/item/${note.noteId}`;
+  const sourceUrl = resolveSourceUrl(note) || `https://www.xiaohongshu.com/discovery/item/${note.noteId}`;
   const safeSummary = summary || note.title || '';
   let safeTags = cleanTags((tags && tags.length > 0) ? tags : ['小红书', ...(note.tags || [])]);
   while (safeTags.length < 3) safeTags.push('笔记');

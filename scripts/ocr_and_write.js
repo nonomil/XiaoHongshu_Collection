@@ -352,7 +352,10 @@ function generateMarkdown(note, content, ocrTexts, summary, tags) {
   const author = cleanAuthor(note.author);
   const date = cleanDate(note.date);
   const shortNote = content.length < 50;
-  const sourceUrl = `https://www.xiaohongshu.com/discovery/item/${note.noteId}`;
+  const sourceUrl = note.sourceUrl
+    || note.noteUrl
+    || note.canonicalUrl
+    || `https://www.xiaohongshu.com/discovery/item/${note.noteId}`;
   const safeSummary = summary || note.title || '';
   const safeTags = (tags && tags.length > 0) ? tags : ['小红书', ...(note.tags || [])];
 

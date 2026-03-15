@@ -325,16 +325,24 @@ async function saveMode(mode, options = {}) {
     task,
     fetchFn: async () => fetchNote(mode),
     enrichFn: async (note) => note,
-    writeFn: async (note) => exportNote({
-      outputRoot: options.outputRoot || OUTPUT_DIR,
-      imagesRoot: options.imagesRoot || IMG_DIR,
-      note,
-      configPath: options.configPath || CONFIG_PATH,
-      visionConfigPath: options.visionConfigPath,
-      conflictStrategy: options.conflictStrategy,
-      maxTitleLength: options.maxTitleLength,
-      runtime: options.uiRuntime
-    }),
+    writeFn: async (note) => {
+      const noteWithSource = {
+        ...note,
+        sourceUrl: note.sourceUrl || getNavigationUrl(mode) || note.noteUrl || '',
+        canonicalUrl: note.canonicalUrl || mode.canonicalUrl || ''
+      };
+
+      return exportNote({
+        outputRoot: options.outputRoot || OUTPUT_DIR,
+        imagesRoot: options.imagesRoot || IMG_DIR,
+        note: noteWithSource,
+        configPath: options.configPath || CONFIG_PATH,
+        visionConfigPath: options.visionConfigPath,
+        conflictStrategy: options.conflictStrategy,
+        maxTitleLength: options.maxTitleLength,
+        runtime: options.uiRuntime
+      });
+    },
     reportFn: async (payload) => ({
       note: payload.steps.fetch?.data,
       result: payload.steps.write?.data,

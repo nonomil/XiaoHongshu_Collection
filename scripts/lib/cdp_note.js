@@ -224,6 +224,9 @@ const COMMENT_THROTTLE_JITTER_MS = resolveNumberEnv(process.env.XHS_COMMENT_THRO
 const COMMENT_RETRY_COUNT = resolveNumberEnv(process.env.XHS_COMMENT_RETRY_COUNT, 2);
 const COMMENT_RETRY_BASE_MS = resolveNumberEnv(process.env.XHS_COMMENT_RETRY_BASE_MS, 400);
 const COMMENT_RETRY_MAX_MS = resolveNumberEnv(process.env.XHS_COMMENT_RETRY_MAX_MS, 2000);
+const COMMENT_MAX_ROUNDS_DEFAULT = 20;
+const COMMENT_NO_CHANGE_ROUNDS_DEFAULT = 6;
+const REPLY_MAX_ROUNDS_DEFAULT = 12;
 
 function logCommentDebug(label, state) {
   if (!DEBUG_COMMENTS) return;
@@ -462,7 +465,7 @@ async function clickNextReplyExpander(ws, options = {}) {
   return !!payload.clicked;
 }
 
-async function expandAllReplies(ws, maxRounds = 8, options = {}) {
+async function expandAllReplies(ws, maxRounds, options = {}) {
   const readState = options.readState || (() => readCommentExpansionState(ws));
   const clickNext = options.clickNext || (() => clickNextReplyExpander(ws));
   const waitForStateChange = options.waitForStateChange || ((params) => waitForCommentStateChange(params));
@@ -471,6 +474,9 @@ async function expandAllReplies(ws, maxRounds = 8, options = {}) {
     ? options.throttleJitterMs
     : COMMENT_THROTTLE_JITTER_MS;
   const wait = options.wait || sleep;
+  const maxRoundsSafe = Number.isFinite(maxRounds)
+    ? maxRounds
+    : resolveNumberEnv(process.env.XHS_REPLY_MAX_ROUNDS, REPLY_MAX_ROUNDS_DEFAULT);
   const throttle = async () => {
     const delay = resolveDelayMs({ baseMs: throttleMs, jitterMs: throttleJitterMs });
     if (delay > 0) {
@@ -480,7 +486,7 @@ async function expandAllReplies(ws, maxRounds = 8, options = {}) {
 
   let currentState = await readState();
 
-  for (let round = 0; round < maxRounds; round += 1) {
+  for (let round = 0; round < maxRoundsSafe; round += 1) {
     const clicked = await clickNext();
     if (!clicked) break;
 
@@ -645,7 +651,7 @@ async function ensureCommentsReady(ws, maxRounds = 4, options = {}) {
   return currentState;
 }
 
-async function expandAllComments(ws, maxRounds = 12, options = {}) {
+async function expandAllComments(ws, maxRounds, options = {}) {
   const readState = options.readState || (() => readCommentExpansionState(ws));
   const clickNext = options.clickNext || (() => clickNextCommentExpander(ws));
   const scrollMore = options.scrollMore || (() => scrollMoreComments(ws));
@@ -655,15 +661,18 @@ async function expandAllComments(ws, maxRounds = 12, options = {}) {
     ? options.throttleJitterMs
     : COMMENT_THROTTLE_JITTER_MS;
   const wait = options.wait || sleep;
+  const maxRoundsSafe = Number.isFinite(maxRounds)
+    ? maxRounds
+    : resolveNumberEnv(process.env.XHS_COMMENT_MAX_ROUNDS, COMMENT_MAX_ROUNDS_DEFAULT);
+  const maxNoChangeRounds = Number.isFinite(options.maxNoChangeRounds)
+    ? Math.max(0, options.maxNoChangeRounds)
+    : resolveNumberEnv(process.env.XHS_COMMENT_NO_CHANGE_ROUNDS, COMMENT_NO_CHANGE_ROUNDS_DEFAULT);
   const throttle = async () => {
     const delay = resolveDelayMs({ baseMs: throttleMs, jitterMs: throttleJitterMs });
     if (delay > 0) {
       await wait(delay);
     }
   };
-  const maxNoChangeRounds = Number.isFinite(options.maxNoChangeRounds)
-    ? Math.max(0, options.maxNoChangeRounds)
-    : 2;
   let noChangeRounds = 0;
 
   let currentState = await ensureCommentsReady(ws, options.readyAttempts || 4, {
@@ -678,7 +687,7 @@ async function expandAllComments(ws, maxRounds = 12, options = {}) {
   });
   logCommentDebug('expand:init', currentState);
 
-  for (let round = 0; round < maxRounds; round += 1) {
+  for (let round = 0; round < maxRoundsSafe; round += 1) {
     if (!shouldLoadMoreComments(currentState)) break;
 
     let advanced = false;
@@ -836,7 +845,6 @@ async function extractNoteDetail(ws) {
       {
         retries: COMMENT_RETRY_COUNT,
         baseDelayMs: COMMENT_RETRY_BASE_MS,
-        maxDelayMs: COMMENT_RETRY_MAX_MS,
         jitterMs: COMMENT_THROTTLE_JITTER_MS,
         wait: sleep,
         onRetry: (error, attempt, delayMs) => {
@@ -950,4 +958,6 @@ module.exports = {
   waitForNoteDetailReady,
   waitForCommentStateChange
 };
+
+
 

@@ -159,6 +159,35 @@ test('saveLinksText passes ui overrides to exportNote', async () => {
   assert.equal(captured.maxTitleLength, 40);
 });
 
+test('saveLinksText passes original navigation url into exported note', async () => {
+  let capturedNote;
+  await saveLinksText('短链 http://xhslink.com/o/short1', {
+    resolveRedirectFn: async (url) => {
+      if (url === 'http://xhslink.com/o/short1') {
+        return 'https://www.xiaohongshu.com/discovery/item/abc123?xsec_token=foo';
+      }
+      return url;
+    },
+    fetchNote: async () => ({
+      title: 'Title',
+      noteId: 'abc123',
+      author: 'Author',
+      collection: 'Single',
+      date: '2026-03-08',
+      tags: [],
+      images: [],
+      content: 'Body',
+      comments: []
+    }),
+    exportNote: async (payload) => {
+      capturedNote = payload.note;
+      return { filepath: 'G:/output/abc123.md' };
+    }
+  });
+
+  assert.equal(capturedNote.sourceUrl, 'http://xhslink.com/o/short1');
+});
+
 test('getNavigationUrl prefers original navigation url over canonical url', () => {
   const result = getNavigationUrl({
     mode: 'url',

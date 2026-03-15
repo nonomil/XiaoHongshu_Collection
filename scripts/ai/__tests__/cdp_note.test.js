@@ -221,6 +221,35 @@ test('expandAllComments keeps advancing when more top-level comments require scr
   assert.equal(scrolls.length, 2);
 });
 
+test('expandAllComments honors env max rounds when maxRounds is not provided', async () => {
+  const previous = process.env.XHS_COMMENT_MAX_ROUNDS;
+  process.env.XHS_COMMENT_MAX_ROUNDS = '2';
+
+  const clicks = [];
+  await expandAllComments(null, undefined, {
+    readState: async () => ({ commentCount: 1, buttonCount: 1 }),
+    clickNext: async () => {
+      clicks.push('clicked');
+      return true;
+    },
+    waitForStateChange: async () => ({
+      changed: true,
+      state: { commentCount: 1, buttonCount: 1 }
+    }),
+    expandReplies: false,
+    throttleMs: 0,
+    throttleJitterMs: 0
+  });
+
+  if (typeof previous === 'undefined') {
+    delete process.env.XHS_COMMENT_MAX_ROUNDS;
+  } else {
+    process.env.XHS_COMMENT_MAX_ROUNDS = previous;
+  }
+
+  assert.equal(clicks.length, 2);
+});
+
 test('waitForNoteDetailReady polls until the note detail title is available', async () => {
   const states = [
     { url: 'about:blank', title: '' },

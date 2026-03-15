@@ -54,7 +54,10 @@ function generateMarkdown(note) {
   const shortNote = content.length < 50;
   const tags = ['小红书', ...note.tags];
   const noteUrl = note.noteUrl.split('?')[0];
-  const sourceUrl = `https://www.xiaohongshu.com/discovery/item/${note.noteId}`;
+  const sourceUrl = note.sourceUrl
+    || note.noteUrl
+    || note.canonicalUrl
+    || `https://www.xiaohongshu.com/discovery/item/${note.noteId}`;
 
   let md = '---\n';
   md += `title: "${note.title}"\n`;
