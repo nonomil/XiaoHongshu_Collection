@@ -30,6 +30,7 @@ async function startServer(overrides = {}) {
       ]
     })),
     runInboxSync: overrides.runInboxSync,
+    runInboxSave: overrides.runInboxSave,
     uiConfigPath: overrides.uiConfigPath
   });
 
@@ -201,6 +202,22 @@ test('inbox sync api returns a normalized success payload', async () => {
   assert.equal(response.body.report.added, 2);
   assert.equal(response.body.report.skipped, 1);
   assert.equal(response.body.report.total, 3);
+});
+
+test('inbox save api returns a normalized success payload', async () => {
+  const { baseUrl } = await startServer({
+    runInboxSave: async () => ({
+      total: 2,
+      summary: { total: 2, successCount: 2, failureCount: 0, results: [] }
+    })
+  });
+
+  const response = await requestJson(`${baseUrl}/api/inbox/save`, {});
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.report.total, 2);
+  assert.equal(response.body.report.successCount, 2);
 });
 
 test('save-collection api surfaces login-related errors in response', async () => {

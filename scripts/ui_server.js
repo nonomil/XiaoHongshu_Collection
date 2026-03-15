@@ -12,6 +12,7 @@ const {
 } = require('./save_note');
 const { runTaskPipeline } = require('./lib/pipeline');
 const { resolveProjectPaths } = require('./lib/config');
+const { saveInboxUrls } = require('./lib/inbox_save');
 const { loadUiConfig, mergeUiConfig, saveUiConfig } = require('./lib/ui_config');
 const { syncInbox } = require('./lib/inbox_sync');
 const { logError, logInfo } = require('./lib/logger');
@@ -280,10 +281,26 @@ function createUiServer({
   saveLinksText: saveLinks = saveLinksText,
   runCollectionExport: runCollection = runCollectionExport,
   runInboxSync: runInbox = syncInbox,
+  runInboxSave,
   uiDir = UI_DIR,
   uiConfigPath = DEFAULT_UI_CONFIG_PATH
 } = {}) {
   let activeTask = '';
+  const runInboxSaveWithConfig = runInboxSave
+    || (async ({ uiConfig }) => {
+      const summaryResult = await saveInboxUrls({
+        saveLinksText: (text, options = {}) => saveLinks(text, {
+          ...options,
+          source: 'ui',
+          outputRoot: uiConfig.paths.saveLinksOutputRoot || undefined,
+          imagesRoot: uiConfig.paths.saveLinksImagesRoot || undefined,
+          conflictStrategy: uiConfig.naming.conflictStrategy,
+          maxTitleLength: uiConfig.naming.maxTitleLength,
+          uiRuntime: uiConfig.runtime
+        })
+      });
+      return summaryResult;
+    });
 
   async function runExclusive(taskName, task) {
     if (activeTask) {
@@ -433,6 +450,26 @@ function createUiServer({
         sendJson(response, 200, {
           ok: true,
           report: result
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/inbox/save') {
+        const payload = await readJsonBody(request);
+        const uiConfig = resolveUiConfig(uiConfigPath, payload);
+        const result = await runExclusive('inbox-save', () => runInboxSaveWithConfig({
+          uiConfigPath,
+          uiConfig
+        }));
+        const report = result?.summary || {
+          total: result?.total || 0,
+          successCount: 0,
+          failureCount: 0,
+          results: []
+        };
+        sendJson(response, 200, {
+          ok: true,
+          report
         });
         return;
       }
