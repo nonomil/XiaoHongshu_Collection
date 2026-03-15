@@ -32,5 +32,5 @@ test('scrollMoreComments attempts to scroll the root container', async () => {
 
   assert.equal(result, true);
   assert.equal(evaluateCalled, true);
-  assert.match(capturedExpression, /noteContainer|scrollTop|scrollTo/);
+  assert.match(capturedExpression, /noteContainer|note-scroller|scrollTop|scrollTo/);
 });

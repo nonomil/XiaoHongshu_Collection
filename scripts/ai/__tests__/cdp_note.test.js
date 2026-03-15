@@ -294,6 +294,40 @@ test('waitForNoteDetailReady treats state note data as ready even without title'
   assert.deepEqual(waits, [200, 200, 200]);
 });
 
+test('waitForNoteDetailReady aborts early when redirected to a 404 error page with message', async () => {
+  const states = [
+    { url: 'about:blank', title: '' },
+    {
+      url: 'https://www.xiaohongshu.com/404?error_code=300031&error_msg=%E5%BD%93%E5%89%8D%E7%AC%94%E8%AE%B0%E6%9A%82%E6%97%B6%E6%97%A0%E6%B3%95%E6%B5%8F%E8%A7%88',
+      title: '',
+      errorCode: 300031,
+      errorMsg: '当前笔记暂时无法浏览',
+      errorPath: '/404'
+    },
+    { url: 'https://www.xiaohongshu.com/explore/abc123', title: '标题' }
+  ];
+  const waits = [];
+
+  const result = await waitForNoteDetailReady({
+    readState: async () => states.shift(),
+    wait: async (ms) => { waits.push(ms); },
+    attempts: 10,
+    intervalMs: 200
+  });
+
+  assert.deepEqual(result, {
+    ready: false,
+    state: {
+      url: 'https://www.xiaohongshu.com/404?error_code=300031&error_msg=%E5%BD%93%E5%89%8D%E7%AC%94%E8%AE%B0%E6%9A%82%E6%97%B6%E6%97%A0%E6%B3%95%E6%B5%8F%E8%A7%88',
+      title: '',
+      errorCode: 300031,
+      errorMsg: '当前笔记暂时无法浏览',
+      errorPath: '/404'
+    }
+  });
+  assert.deepEqual(waits, [200, 200]);
+});
+
 test('selectDebuggerTab falls back to a regular page tab when xiaohongshu is not open yet', () => {
   const wsUrl = selectDebuggerTab([
     {

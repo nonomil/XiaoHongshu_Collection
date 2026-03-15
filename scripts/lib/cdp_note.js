@@ -273,13 +273,28 @@ async function readNoteDetailReadyState(ws) {
     (function() {
       const root = document.querySelector('#noteContainer') || document;
       const titleEl = root.querySelector('#detail-title, .note-content .title, [class*="detail"] [class*="title"], h1');
+      let errorCode = 0;
+      let errorMsg = '';
+      let errorPath = '';
+      try {
+        const parsed = new URL(location.href);
+        errorPath = parsed.pathname || '';
+        const rawCode = parsed.searchParams.get('error_code') || '';
+        errorCode = rawCode ? Number(rawCode) : 0;
+        errorMsg = String(parsed.searchParams.get('error_msg') || '').trim();
+      } catch (_) {
+        // ignore URL parsing failures
+      }
       const state = window.__INITIAL_STATE__ || {};
       const noteMap = state.note && state.note.noteDetailMap ? state.note.noteDetailMap : {};
       const hasStateNote = Object.keys(noteMap).some((key) => noteMap[key] && noteMap[key].note);
       return JSON.stringify({
         url: location.href,
         title: titleEl ? titleEl.textContent.trim() : '',
-        hasStateNote
+        hasStateNote,
+        errorCode,
+        errorMsg,
+        errorPath
       });
     })()
   `);
@@ -296,6 +311,16 @@ async function waitForNoteDetailReady({
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     await wait(intervalMs);
     currentState = await readState();
+
+    // Some notes are blocked on the web and redirect to a 404 page with an encoded error message.
+    // Bail out early so callers can surface a concrete reason instead of a generic timeout.
+    if (
+      currentState &&
+      (currentState.errorMsg || currentState.errorCode) &&
+      String(currentState.errorPath || '').includes('/404')
+    ) {
+      return { ready: false, state: currentState };
+    }
     if (
       isNoteDetailUrl(currentState.url) &&
       (String(currentState.title || '').trim() || currentState.hasStateNote)
@@ -317,7 +342,14 @@ async function navigateToUrl(ws, url, options = {}) {
   });
 
   if (!result.ready) {
-    throw new Error(`Timed out waiting for note detail page: ${result.state?.url || url}`);
+    const errorMsg = String(result.state?.errorMsg || '').trim();
+    const errorCode = result.state?.errorCode;
+    const finalUrl = result.state?.url || url;
+    if (errorMsg || errorCode) {
+      const codeText = errorCode ? `error_code=${errorCode}` : 'error_code=unknown';
+      throw new Error(`无法打开笔记详情页：${errorMsg || '未知错误'}（${codeText}）。当前页面：${finalUrl}`);
+    }
+    throw new Error(`Timed out waiting for note detail page: ${finalUrl}`);
   }
 }
 
@@ -790,15 +822,17 @@ async function scrollMoreComments(ws, options = {}) {
       const pageRoot = document.querySelector('#noteContainer') || document.scrollingElement || document.documentElement || document.body;
       const root = pageRoot || document;
       const commentsRoot = root.querySelector('.comments-container, .comments-el');
+      const noteScroller = (commentsRoot && commentsRoot.closest && commentsRoot.closest('.note-scroller')) || document.querySelector('.note-scroller');
       let scrolled = false;
       let scrolledRoot = false;
 
       if (!commentsRoot) {
-        if (pageRoot && pageRoot.scrollHeight > pageRoot.clientHeight) {
-          if (typeof pageRoot.scrollTo === 'function') {
-            pageRoot.scrollTo({ top: pageRoot.scrollHeight, behavior: 'instant' });
+        const scrollTarget = noteScroller || pageRoot;
+        if (scrollTarget && scrollTarget.scrollHeight > scrollTarget.clientHeight) {
+          if (typeof scrollTarget.scrollTo === 'function') {
+            scrollTarget.scrollTo({ top: scrollTarget.scrollHeight, behavior: 'instant' });
           }
-          pageRoot.scrollTop = pageRoot.scrollHeight;
+          scrollTarget.scrollTop = scrollTarget.scrollHeight;
           scrolledRoot = true;
         }
         window.scrollBy(0, Math.max(480, Math.floor(window.innerHeight * 0.9)));
@@ -810,23 +844,25 @@ async function scrollMoreComments(ws, options = {}) {
         commentsRoot.querySelector('.comment-list, .comments-list, [class*="comment-list"], [class*="comments-list"]') ||
         commentsRoot;
       const lastItem = commentsRoot.querySelector('.comment-item:last-child');
+      const scrollTarget = noteScroller || target;
 
       commentsRoot.scrollIntoView({ block: 'end' });
       if (lastItem) {
         lastItem.scrollIntoView({ block: 'end' });
       }
 
-      if (typeof target.scrollTo === 'function') {
-        target.scrollTo({ top: target.scrollHeight, behavior: 'instant' });
+      if (typeof scrollTarget.scrollTo === 'function') {
+        scrollTarget.scrollTo({ top: scrollTarget.scrollHeight, behavior: 'instant' });
       }
-      target.scrollTop = target.scrollHeight;
+      scrollTarget.scrollTop = scrollTarget.scrollHeight;
       scrolled = true;
 
-      if (pageRoot && pageRoot.scrollHeight > pageRoot.clientHeight) {
-        if (typeof pageRoot.scrollTo === 'function') {
-          pageRoot.scrollTo({ top: pageRoot.scrollHeight, behavior: 'instant' });
+      const rootScrollTarget = noteScroller || pageRoot;
+      if (rootScrollTarget && rootScrollTarget.scrollHeight > rootScrollTarget.clientHeight) {
+        if (typeof rootScrollTarget.scrollTo === 'function') {
+          rootScrollTarget.scrollTo({ top: rootScrollTarget.scrollHeight, behavior: 'instant' });
         }
-        pageRoot.scrollTop = pageRoot.scrollHeight;
+        rootScrollTarget.scrollTop = rootScrollTarget.scrollHeight;
         scrolledRoot = true;
       }
       window.scrollBy(0, Math.max(480, Math.floor(window.innerHeight * 0.9)));
