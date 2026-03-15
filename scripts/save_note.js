@@ -326,8 +326,12 @@ async function saveMode(mode, options = {}) {
     fetchFn: async () => fetchNote(mode),
     enrichFn: async (note) => note,
     writeFn: async (note) => {
+      const resolvedCollection = typeof options.collectionResolver === 'function'
+        ? options.collectionResolver({ note, mode, task })
+        : (options.collectionOverride || '');
       const noteWithSource = {
         ...note,
+        collection: resolvedCollection || note.collection,
         sourceUrl: note.sourceUrl || getNavigationUrl(mode) || note.noteUrl || '',
         canonicalUrl: note.canonicalUrl || mode.canonicalUrl || ''
       };

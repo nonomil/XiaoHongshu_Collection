@@ -289,11 +289,12 @@ function createUiServer({
   const runInboxSaveWithConfig = runInboxSave
     || (async ({ uiConfig }) => {
       const summaryResult = await saveInboxUrls({
+        uiConfig,
         saveLinksText: (text, options = {}) => saveLinks(text, {
           ...options,
           source: 'ui',
-          outputRoot: uiConfig.paths.saveLinksOutputRoot || undefined,
-          imagesRoot: uiConfig.paths.saveLinksImagesRoot || undefined,
+          outputRoot: options.outputRoot || uiConfig.paths.saveLinksOutputRoot || undefined,
+          imagesRoot: options.imagesRoot || uiConfig.paths.saveLinksImagesRoot || undefined,
           conflictStrategy: uiConfig.naming.conflictStrategy,
           maxTitleLength: uiConfig.naming.maxTitleLength,
           uiRuntime: uiConfig.runtime

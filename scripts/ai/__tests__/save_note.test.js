@@ -188,6 +188,31 @@ test('saveLinksText passes original navigation url into exported note', async ()
   assert.equal(capturedNote.sourceUrl, 'http://xhslink.com/o/short1');
 });
 
+test('saveLinksText applies collectionResolver to note collection', async () => {
+  let capturedCollection;
+  await saveLinksText('http://xhslink.com/o/short1', {
+    resolveRedirectFn: async () => 'https://www.xiaohongshu.com/discovery/item/abc123',
+    fetchNote: async () => ({
+      title: 'Title',
+      noteId: 'abc123',
+      author: 'Author',
+      collection: '单条笔记保存',
+      date: '2026-03-08',
+      tags: [],
+      images: [],
+      content: 'Body',
+      comments: []
+    }),
+    collectionResolver: () => '理财',
+    exportNote: async (payload) => {
+      capturedCollection = payload.note.collection;
+      return { filepath: 'G:/output/abc123.md' };
+    }
+  });
+
+  assert.equal(capturedCollection, '理财');
+});
+
 test('getNavigationUrl prefers original navigation url over canonical url', () => {
   const result = getNavigationUrl({
     mode: 'url',

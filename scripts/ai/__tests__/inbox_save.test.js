@@ -56,3 +56,30 @@ test('saveInboxUrls uses inbox urls and saveLinksText', async () => {
   assert.equal(captured, 'https://a.com\nhttps://b.com');
   assert.equal(result.total, 2);
 });
+
+test('saveInboxUrls injects inbox output root and classifier', async () => {
+  resetTmp();
+  const lines = [
+    JSON.stringify({ url: 'https://a.com' })
+  ].join('\n') + '\n';
+  fs.writeFileSync(inboxPath, lines, 'utf-8');
+  fs.writeFileSync(pushbulletConfigPath, JSON.stringify({
+    enabled: true,
+    accessToken: 'token',
+    lastModified: 0,
+    inboxPath
+  }, null, 2), 'utf-8');
+
+  let seenOptions = null;
+  await saveInboxUrls({
+    pushbulletConfigPath,
+    saveLinksText: async (_text, options = {}) => {
+      seenOptions = options;
+      return { total: 1, successCount: 1, failureCount: 0, results: [] };
+    }
+  });
+
+  assert.ok(seenOptions);
+  assert.match(seenOptions.outputRoot, /收件箱同步/);
+  assert.equal(typeof seenOptions.collectionResolver, 'function');
+});
