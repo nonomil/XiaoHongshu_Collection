@@ -6,6 +6,8 @@
     "inbox:sync": "node scripts/inbox_sync.js",
     "inbox:save": "node scripts/inbox_save.js",
     "ui": "node scripts/ui_server.js",
+    "pretest": "node scripts/cleanup_tmp.js",
+    "posttest": "node scripts/cleanup_tmp.js",
     "test": "node --test scripts/ai/__tests__/*.test.js"
   },
   "dependencies": {
