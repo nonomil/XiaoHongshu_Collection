@@ -63,3 +63,35 @@ test('syncInbox uses since=0 for full sync', async () => {
 
   assert.equal(capturedSince, 0);
 });
+
+test('syncInbox returns mode/since and preserves provider warnings', async () => {
+  resetTmp();
+  fs.writeFileSync(pushbulletConfigPath, JSON.stringify({
+    enabled: true,
+    accessToken: 'token',
+    lastModified: 123,
+    inboxPath: 'data/inbox.jsonl'
+  }, null, 2), 'utf-8');
+
+  const result = await syncInbox({
+    pushbulletConfigPath,
+    mode: 'latest',
+    providerFactory: () => ({
+      pull: async ({ since }) => ({
+        items: [{ url: 'https://example.com' }],
+        nextModified: Number(since) + 10,
+        truncated: true,
+        warning: 'mock warning'
+      })
+    }),
+    storeFactory: () => ({
+      append: async () => ({ added: 1, skipped: 0 })
+    })
+  });
+
+  assert.equal(result.mode, 'latest');
+  assert.equal(result.since, 123);
+  assert.equal(result.nextModified, 133);
+  assert.equal(result.truncated, true);
+  assert.equal(result.warning, 'mock warning');
+});

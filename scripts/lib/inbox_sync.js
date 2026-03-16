@@ -36,7 +36,9 @@ async function syncInbox({
     : createPushbulletProvider({ accessToken: config.accessToken });
   const normalizedMode = mode === 'all' ? 'all' : 'latest';
   const since = normalizedMode === 'all' ? 0 : Number(config.lastModified || 0);
-  const { items, nextModified } = await provider.pull({ since });
+  const pullResult = await provider.pull({ since });
+  const items = Array.isArray(pullResult?.items) ? pullResult.items : [];
+  const nextModified = Number(pullResult?.nextModified || 0);
   const inboxPath = resolveInboxPath(PATHS.projectDir, config.inboxPath);
   const store = storeFactory
     ? storeFactory(config)
@@ -46,12 +48,23 @@ async function syncInbox({
   const updatedConfig = { ...config, lastModified: nextModified };
   savePushbulletConfig({ configPath: pushbulletConfigPath, payload: updatedConfig });
 
-  return {
+  const result = {
+    mode: normalizedMode,
+    since,
     added,
     skipped,
     total: items.length,
     nextModified
   };
+
+  if (pullResult?.truncated) {
+    result.truncated = true;
+  }
+  if (pullResult?.warning) {
+    result.warning = String(pullResult.warning);
+  }
+
+  return result;
 }
 
 module.exports = {

@@ -14,6 +14,7 @@ const { runTaskPipeline } = require('./lib/pipeline');
 const { resolveProjectPaths } = require('./lib/config');
 const { saveInboxUrls } = require('./lib/inbox_save');
 const { loadUiConfig, mergeUiConfig, saveUiConfig } = require('./lib/ui_config');
+const { loadPushbulletConfig, savePushbulletConfig } = require('./lib/pushbullet_config');
 const { syncInbox } = require('./lib/inbox_sync');
 const { logError, logInfo } = require('./lib/logger');
 const { buildTaskResult, buildTaskSummary } = require('./lib/report');
@@ -28,6 +29,7 @@ const PROJECT_DIR = PATHS.projectDir;
 const UI_DIR = path.join(PROJECT_DIR, 'ui');
 const DEFAULT_PORT = Number(process.env.XHS_UI_PORT || 3030);
 const DEFAULT_UI_CONFIG_PATH = path.join(PATHS.configDir, 'ui.json');
+const DEFAULT_PUSHBULLET_CONFIG_PATH = path.join(PATHS.configDir, 'pushbullet.json');
 
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -161,12 +163,36 @@ function buildCollectionEnv(overrides = {}) {
   return env;
 }
 
+function extractIncomingConfig(payload) {
+  if (!payload || typeof payload !== 'object') return {};
+  const incoming = payload.uiConfig || payload.config || payload;
+  return incoming && typeof incoming === 'object' ? incoming : {};
+}
+
 function resolveUiConfig(configPath, payload) {
   const stored = loadUiConfig({ configPath });
-  const incoming = payload && typeof payload === 'object'
-    ? (payload.uiConfig || payload.config || payload)
-    : {};
-  return mergeUiConfig(stored, incoming);
+  return mergeUiConfig(stored, extractIncomingConfig(payload));
+}
+
+function sanitizePushbulletForUi(config) {
+  const enabled = config?.enabled === true;
+  const inboxPath = typeof config?.inboxPath === 'string' ? config.inboxPath : '';
+  const lastModified = Number(config?.lastModified || 0) || 0;
+  const hasAccessToken = Boolean(String(config?.accessToken || '').trim());
+  return {
+    enabled,
+    inboxPath,
+    lastModified,
+    hasAccessToken
+  };
+}
+
+function buildMergedUiConfig({ uiConfigPath, pushbulletConfigPath }) {
+  const storedUi = loadUiConfig({ configPath: uiConfigPath });
+  const merged = mergeUiConfig(storedUi, {});
+  const pushbullet = loadPushbulletConfig({ configPath: pushbulletConfigPath });
+  merged.pushbullet = sanitizePushbulletForUi(pushbullet);
+  return merged;
 }
 
 function sendNdjson(response, payload) {
@@ -283,12 +309,14 @@ function createUiServer({
   runInboxSync: runInbox = syncInbox,
   runInboxSave,
   uiDir = UI_DIR,
-  uiConfigPath = DEFAULT_UI_CONFIG_PATH
+  uiConfigPath = DEFAULT_UI_CONFIG_PATH,
+  pushbulletConfigPath = DEFAULT_PUSHBULLET_CONFIG_PATH
 } = {}) {
   let activeTask = '';
   const runInboxSaveWithConfig = runInboxSave
     || (async ({ uiConfig }) => {
       const summaryResult = await saveInboxUrls({
+        pushbulletConfigPath,
         uiConfig,
         saveLinksText: (text, options = {}) => saveLinks(text, {
           ...options,
@@ -324,7 +352,7 @@ function createUiServer({
 
       if (request.method === 'GET') {
         if (url.pathname === '/api/ui-config') {
-          const config = loadUiConfig({ configPath: uiConfigPath });
+          const config = buildMergedUiConfig({ uiConfigPath, pushbulletConfigPath });
           sendJson(response, 200, { ok: true, config });
           return;
         }
@@ -334,9 +362,60 @@ function createUiServer({
 
       if (request.method === 'POST' && url.pathname === '/api/ui-config') {
         const payload = await readJsonBody(request);
-        const merged = resolveUiConfig(uiConfigPath, payload);
-        saveUiConfig({ configPath: uiConfigPath, payload: merged });
-        sendJson(response, 200, { ok: true, config: merged });
+        const incoming = extractIncomingConfig(payload);
+
+        const storedUi = loadUiConfig({ configPath: uiConfigPath });
+        const inboxSection = incoming.inbox && typeof incoming.inbox === 'object'
+          && incoming.inbox.categories && typeof incoming.inbox.categories === 'object'
+          && !Array.isArray(incoming.inbox.categories)
+          ? { categories: incoming.inbox.categories }
+          : undefined;
+        const uiIncoming = {
+          paths: incoming.paths,
+          naming: incoming.naming,
+          runtime: incoming.runtime,
+          inbox: inboxSection,
+          ui: incoming.ui
+        };
+        const uiMerged = mergeUiConfig(storedUi, uiIncoming);
+        saveUiConfig({ configPath: uiConfigPath, payload: uiMerged });
+
+        const storedPushbullet = loadPushbulletConfig({ configPath: pushbulletConfigPath });
+        const incomingPushbullet = incoming.pushbullet && typeof incoming.pushbullet === 'object'
+          ? incoming.pushbullet
+          : {};
+
+        const nextPushbullet = {
+          enabled: storedPushbullet.enabled === true,
+          accessToken: String(storedPushbullet.accessToken || ''),
+          lastModified: Number(storedPushbullet.lastModified || 0) || 0,
+          inboxPath: typeof storedPushbullet.inboxPath === 'string'
+            ? storedPushbullet.inboxPath
+            : 'data/inbox_links.jsonl'
+        };
+
+        if (typeof incomingPushbullet.enabled === 'boolean') {
+          nextPushbullet.enabled = incomingPushbullet.enabled;
+        }
+
+        if (Object.prototype.hasOwnProperty.call(incomingPushbullet, 'inboxPath')) {
+          nextPushbullet.inboxPath = String(incomingPushbullet.inboxPath || '').trim();
+        } else if (incoming.inbox && Object.prototype.hasOwnProperty.call(incoming.inbox, 'path')) {
+          // Backward compatible: older UI versions posted inbox.path instead of pushbullet.inboxPath.
+          nextPushbullet.inboxPath = String(incoming.inbox.path || '').trim();
+        }
+
+        if (Object.prototype.hasOwnProperty.call(incomingPushbullet, 'accessToken')) {
+          const token = String(incomingPushbullet.accessToken || '').trim();
+          if (token) {
+            nextPushbullet.accessToken = token;
+          }
+        }
+
+        savePushbulletConfig({ configPath: pushbulletConfigPath, payload: nextPushbullet });
+
+        const config = buildMergedUiConfig({ uiConfigPath, pushbulletConfigPath });
+        sendJson(response, 200, { ok: true, config });
         return;
       }
 
@@ -441,11 +520,9 @@ function createUiServer({
 
       if (request.method === 'POST' && url.pathname === '/api/inbox/sync') {
         const payload = await readJsonBody(request);
-        const uiConfig = resolveUiConfig(uiConfigPath, payload);
         const mode = payload && payload.mode === 'all' ? 'all' : 'latest';
         const result = await runExclusive('inbox-sync', () => runInbox({
-          uiConfigPath,
-          uiConfig,
+          pushbulletConfigPath,
           mode
         }));
         sendJson(response, 200, {
@@ -459,7 +536,6 @@ function createUiServer({
         const payload = await readJsonBody(request);
         const uiConfig = resolveUiConfig(uiConfigPath, payload);
         const result = await runExclusive('inbox-save', () => runInboxSaveWithConfig({
-          uiConfigPath,
           uiConfig
         }));
         const report = result?.summary || {

@@ -296,7 +296,6 @@ function maskToken(token) {
 function readConfigFromForm() {
   const fallback = currentConfig || {};
   const tokenInput = String(pushbulletToken.value || '').trim();
-  const accessToken = tokenInput || fallback.pushbullet?.accessToken || '';
   const inboxValue = String(inboxPath.value || '').trim();
   const categoriesText = String(inboxCategories?.value || '').trim();
   let inboxCategoriesValue = fallback.inbox?.categories || {};
@@ -310,6 +309,13 @@ function readConfigFromForm() {
     } catch (_) {
       throw new Error('收件箱分类规则 JSON 解析失败');
     }
+  }
+  const pushbulletPayload = {
+    enabled: pushbulletEnabled.checked,
+    inboxPath: inboxValue || fallback.pushbullet?.inboxPath || ''
+  };
+  if (tokenInput) {
+    pushbulletPayload.accessToken = tokenInput;
   }
   return {
     paths: {
@@ -330,13 +336,8 @@ function readConfigFromForm() {
       visionOcrTimeoutMs: readNumber(runtimeVisionTimeout, fallback.runtime?.visionOcrTimeoutMs || 60000),
       maxImagesPerNote: readNumber(runtimeMaxImages, fallback.runtime?.maxImagesPerNote || 12)
     },
-    pushbullet: {
-      enabled: pushbulletEnabled.checked,
-      accessToken,
-      lastModified: Number(fallback.pushbullet?.lastModified || 0)
-    },
+    pushbullet: pushbulletPayload,
     inbox: {
-      path: inboxValue || fallback.inbox?.path || '',
       categories: inboxCategoriesValue
     },
     ui: {
@@ -361,10 +362,10 @@ function applyConfigToForm(config) {
   runtimeMaxImages.value = cfg.runtime?.maxImagesPerNote ?? '';
   pushbulletEnabled.checked = cfg.pushbullet?.enabled === true;
   pushbulletToken.value = '';
-  pushbulletToken.placeholder = cfg.pushbullet?.accessToken
-    ? `已保存：${maskToken(cfg.pushbullet.accessToken)}`
+  pushbulletToken.placeholder = cfg.pushbullet?.hasAccessToken
+    ? '已保存（不回显）'
     : '在 Pushbullet 账号设置中获取';
-  inboxPath.value = cfg.inbox?.path || '';
+  inboxPath.value = cfg.pushbullet?.inboxPath || cfg.inbox?.path || '';
   if (inboxCategories) {
     const categoriesValue = cfg.inbox?.categories || {};
     inboxCategories.value = JSON.stringify(categoriesValue, null, 2);
@@ -380,6 +381,10 @@ function renderSummary(report) {
   if (typeof report.added === 'number') {
     const summary = document.createElement('div');
     summary.className = 'summary-block';
+    const modeLabel = report.mode === 'all' ? '全部' : '最新';
+    const cursorLabel = typeof report.since === 'number' && typeof report.nextModified === 'number'
+      ? `${report.since} → ${report.nextModified}`
+      : '';
     summary.innerHTML = `
       <div>
         <strong>新增</strong>
@@ -393,6 +398,15 @@ function renderSummary(report) {
         <strong>总数</strong>
         <span>${report.total ?? 0}</span>
       </div>
+      <div>
+        <strong>模式</strong>
+        <span>${modeLabel}</span>
+      </div>
+      ${cursorLabel ? `
+      <div>
+        <strong>游标</strong>
+        <span>${cursorLabel}</span>
+      </div>` : ''}
     `;
     resultSummary.appendChild(summary);
     return;

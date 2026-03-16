@@ -17,6 +17,8 @@ afterEach(async () => {
 });
 
 async function startServer(overrides = {}) {
+  const pushbulletConfigPath = overrides.pushbulletConfigPath
+    || path.join(createTempDir('xhs-pushbullet-config-'), 'pushbullet.json');
   const server = createUiServer({
     saveLinksText: overrides.saveLinksText || (async () => ({
       total: 1,
@@ -32,7 +34,8 @@ async function startServer(overrides = {}) {
     })),
     runInboxSync: overrides.runInboxSync,
     runInboxSave: overrides.runInboxSave,
-    uiConfigPath: overrides.uiConfigPath
+    uiConfigPath: overrides.uiConfigPath,
+    pushbulletConfigPath
   });
 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -329,4 +332,59 @@ test('save-collection passes ui config overrides to runCollectionExport', async 
   assert.equal(response.statusCode, 200);
   assert.equal(capturedOptions.overrides.collectionOutputRoot, 'G:/custom/output');
   assert.equal(capturedOptions.overrides.collectionRawPath, 'G:/custom/raw.json');
+});
+
+test('ui config api merges pushbullet config but does not return access token', async () => {
+  const tempDir = createTempDir('xhs-ui-config-pushbullet-');
+  const uiConfigPath = path.join(tempDir, 'ui.json');
+  const pushbulletConfigPath = path.join(tempDir, 'pushbullet.json');
+  fs.writeFileSync(pushbulletConfigPath, JSON.stringify({
+    enabled: true,
+    accessToken: 'token-123',
+    lastModified: 42,
+    inboxPath: 'data/inbox.jsonl'
+  }, null, 2), 'utf-8');
+
+  const { baseUrl } = await startServer({ uiConfigPath, pushbulletConfigPath });
+  const response = await requestGet(`${baseUrl}/api/ui-config`);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.config.pushbullet.enabled, true);
+  assert.equal(response.body.config.pushbullet.lastModified, 42);
+  assert.equal(response.body.config.pushbullet.inboxPath, 'data/inbox.jsonl');
+  assert.equal(response.body.config.pushbullet.hasAccessToken, true);
+  assert.equal(response.body.config.pushbullet.accessToken, undefined);
+});
+
+test('ui config api persists pushbullet fields and keeps token/lastModified when omitted', async () => {
+  const tempDir = createTempDir('xhs-ui-config-pushbullet-');
+  const uiConfigPath = path.join(tempDir, 'ui.json');
+  const pushbulletConfigPath = path.join(tempDir, 'pushbullet.json');
+  fs.writeFileSync(pushbulletConfigPath, JSON.stringify({
+    enabled: false,
+    accessToken: 'keep-token',
+    lastModified: 10,
+    inboxPath: 'data/old.jsonl'
+  }, null, 2), 'utf-8');
+
+  const { baseUrl } = await startServer({ uiConfigPath, pushbulletConfigPath });
+  const postResponse = await requestJson(`${baseUrl}/api/ui-config`, {
+    config: {
+      pushbullet: {
+        enabled: true,
+        inboxPath: 'data/new.jsonl'
+      }
+    }
+  });
+
+  assert.equal(postResponse.statusCode, 200);
+  assert.equal(postResponse.body.ok, true);
+  assert.equal(postResponse.body.config.pushbullet.hasAccessToken, true);
+
+  const stored = JSON.parse(fs.readFileSync(pushbulletConfigPath, 'utf-8'));
+  assert.equal(stored.enabled, true);
+  assert.equal(stored.accessToken, 'keep-token');
+  assert.equal(stored.inboxPath, 'data/new.jsonl');
+  assert.equal(stored.lastModified, 10);
 });
