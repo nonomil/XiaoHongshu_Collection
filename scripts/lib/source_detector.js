@@ -36,6 +36,13 @@ function detectSourceFromUrl(input) {
   }
 
   if (
+    /(^|\.)zhihu\.com$/.test(hostname) &&
+    /^\/collection\/\d+/.test(pathname)
+  ) {
+    return 'zhihu_collection';
+  }
+
+  if (
     /(^|\.)csdn\.net$/.test(hostname) &&
     /\/article\/details\/\d+/.test(pathname)
   ) {

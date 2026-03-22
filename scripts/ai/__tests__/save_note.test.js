@@ -202,6 +202,42 @@ test('resolveRunMode accepts direct WeChat article urls', async () => {
   assert.equal(result.canonicalUrl, 'https://mp.weixin.qq.com/s/abc123');
 });
 
+test('resolveRunMode accepts direct Zhihu collection urls for favorites handoff', async () => {
+  const result = await resolveRunMode({
+    mode: 'input',
+    input: 'https://www.zhihu.com/collection/123456789'
+  });
+
+  assert.equal(result.mode, 'url');
+  assert.equal(result.sourceType, 'zhihu_collection');
+  assert.equal(result.navigationUrl, 'https://www.zhihu.com/collection/123456789');
+  assert.equal(result.canonicalUrl, 'https://www.zhihu.com/collection/123456789');
+});
+
+test('fetchPageForMode rejects Zhihu collection urls with dedicated export guidance', async () => {
+  let connectCalled = false;
+
+  await assert.rejects(
+    () => fetchPageForMode(
+      {
+        mode: 'url',
+        sourceType: 'zhihu_collection',
+        navigationUrl: 'https://www.zhihu.com/collection/123456789',
+        canonicalUrl: 'https://www.zhihu.com/collection/123456789'
+      },
+      {
+        connectToChromeFn: async () => {
+          connectCalled = true;
+          return { close: () => {} };
+        }
+      }
+    ),
+    /知乎收藏夹.*专用导出流程|专用导出流程.*知乎收藏夹/
+  );
+
+  assert.equal(connectCalled, false);
+});
+
 test('fetchPageForMode routes current WeChat page through article extractor', async () => {
   let closed = false;
   const result = await fetchPageForMode(

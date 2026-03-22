@@ -33,6 +33,13 @@ test('detectSourceFromUrl identifies Zhihu answer pages', () => {
   );
 });
 
+test('detectSourceFromUrl identifies Zhihu collection pages', () => {
+  assert.equal(
+    detectSourceFromUrl('https://www.zhihu.com/collection/123456789'),
+    'zhihu_collection'
+  );
+});
+
 test('detectSourceFromUrl identifies CSDN article pages', () => {
   assert.equal(
     detectSourceFromUrl('https://blog.csdn.net/example_user/article/details/146200001'),

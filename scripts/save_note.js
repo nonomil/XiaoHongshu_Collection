@@ -466,6 +466,12 @@ function resolveModeContentSourceType(mode) {
   return explicit || 'generic_web';
 }
 
+function ensureSinglePageSourceType(sourceType) {
+  if (sourceType === 'zhihu_collection') {
+    throw new Error('知乎收藏夹链接需要使用专用导出流程，当前单篇保存暂不支持。');
+  }
+}
+
 function extractArticleFromHtml({ url, html, sourceType }) {
   switch (sourceType) {
     case 'wechat_article':
@@ -672,6 +678,7 @@ async function fetchPageForMode(mode, options = {}) {
   const targetSourceType = mode.mode === 'current'
     ? detectSourceFromUrl(targetUrl)
     : resolveModeContentSourceType(mode);
+  ensureSinglePageSourceType(targetSourceType);
   const requireXiaohongshu = mode.mode !== 'current' &&
     targetSourceType === 'xiaohongshu' &&
     browser?.mode === 'current-browser';
@@ -713,6 +720,7 @@ async function fetchPageForMode(mode, options = {}) {
     if (mode.mode === 'current') {
       const currentUrl = await getCurrentPageUrlFn(ws);
       const sourceType = detectSourceFromUrl(currentUrl);
+      ensureSinglePageSourceType(sourceType);
       if (sourceType === 'xiaohongshu') {
         if (!isNoteDetailUrl(currentUrl)) {
           throw new Error('Current tab is not a Xiaohongshu note detail page');
