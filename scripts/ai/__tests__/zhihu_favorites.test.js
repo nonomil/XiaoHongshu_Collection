@@ -1,0 +1,189 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
+
+const {
+  buildZhihuFavoritesPaths,
+  collectZhihuFavoriteEntries,
+  parseZhihuCollectionId,
+  readZhihuFavoritesProgress,
+  writeZhihuFavoritesProgress
+} = require('../../lib/zhihu_favorites');
+const { createTempDir } = require('./test_tmp');
+
+test('parseZhihuCollectionId extracts collection id from Zhihu favorites url', () => {
+  assert.equal(
+    parseZhihuCollectionId('https://www.zhihu.com/collection/123456789'),
+    '123456789'
+  );
+});
+
+test('buildZhihuFavoritesPaths creates collection root and progress path under 知乎收藏夹', () => {
+  const tempRoot = createTempDir('zhihu-favorites-');
+  const paths = buildZhihuFavoritesPaths({
+    outputRoot: tempRoot,
+    collectionId: '123456789',
+    collectionTitle: 'AI / 自动化收藏'
+  });
+
+  assert.match(paths.rootDir, /知乎收藏夹[\\/]AI 自动化收藏$/);
+  assert.match(paths.stateDir, /知乎收藏夹[\\/]AI 自动化收藏[\\/]_state$/);
+  assert.match(paths.progressPath, /export-progress-123456789\.json$/);
+});
+
+test('readZhihuFavoritesProgress returns default state when progress file is missing', () => {
+  const tempRoot = createTempDir('zhihu-favorites-');
+  const progress = readZhihuFavoritesProgress(path.join(tempRoot, 'missing.json'));
+
+  assert.deepEqual(progress, {
+    collectionId: '',
+    nextOffset: 0,
+    exportedIds: [],
+    completed: false,
+    warnings: []
+  });
+});
+
+test('writeZhihuFavoritesProgress persists normalized progress payload', () => {
+  const tempRoot = createTempDir('zhihu-favorites-');
+  const progressPath = path.join(tempRoot, '_state', 'export-progress-123456789.json');
+
+  const progress = writeZhihuFavoritesProgress(progressPath, {
+    collectionId: '123456789',
+    nextOffset: 40,
+    exportedIds: ['answer-1', '', 'answer-1', 'article-2'],
+    completed: true,
+    warnings: ['跳过 1 条失效内容']
+  });
+
+  assert.deepEqual(progress, {
+    collectionId: '123456789',
+    nextOffset: 40,
+    exportedIds: ['answer-1', 'article-2'],
+    completed: true,
+    warnings: ['跳过 1 条失效内容']
+  });
+
+  const saved = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
+  assert.deepEqual(saved, progress);
+});
+
+test('collectZhihuFavoriteEntries paginates from saved offset and skips exported ids', async () => {
+  const seen_offsets = [];
+  const paced_offsets = [];
+
+  const result = await collectZhihuFavoriteEntries({
+    collectionId: '123456789',
+    progress: {
+      collectionId: '123456789',
+      nextOffset: 20,
+      exportedIds: ['answer-1'],
+      completed: false,
+      warnings: []
+    },
+    fetchPageFn: async ({ offset }) => {
+      seen_offsets.push(offset);
+      if (offset === 20) {
+        return {
+          items: [
+            { id: 'answer-1', url: 'https://www.zhihu.com/question/1/answer/1' },
+            { id: 'answer-2', url: 'https://www.zhihu.com/question/1/answer/2' }
+          ],
+          hasMore: true,
+          nextOffset: 40
+        };
+      }
+
+      return {
+        items: [
+          { id: 'article-3', url: 'https://zhuanlan.zhihu.com/p/3' }
+        ],
+        hasMore: false,
+        nextOffset: 60
+      };
+    },
+    paceFn: async ({ offset }) => {
+      paced_offsets.push(offset);
+    }
+  });
+
+  assert.deepEqual(seen_offsets, [20, 40]);
+  assert.deepEqual(paced_offsets, [20]);
+  assert.deepEqual(result.entries, [
+    {
+      id: 'answer-2',
+      url: 'https://www.zhihu.com/question/1/answer/2',
+      sourceType: 'zhihu_answer'
+    },
+    {
+      id: 'article-3',
+      url: 'https://zhuanlan.zhihu.com/p/3',
+      sourceType: 'zhihu_article'
+    }
+  ]);
+  assert.deepEqual(result.progress, {
+    collectionId: '123456789',
+    nextOffset: 60,
+    exportedIds: ['answer-1'],
+    completed: true,
+    warnings: []
+  });
+  assert.deepEqual(result.warnings, []);
+});
+
+test('collectZhihuFavoriteEntries keeps earlier pages and returns warnings when a later page fails', async () => {
+  const result = await collectZhihuFavoriteEntries({
+    collectionId: '123456789',
+    fetchPageFn: async ({ offset }) => {
+      if (offset === 0) {
+        return {
+          items: [
+            { id: 'answer-2', url: 'https://www.zhihu.com/question/1/answer/2' }
+          ],
+          hasMore: true,
+          nextOffset: 20
+        };
+      }
+
+      throw new Error('mock page failure');
+    }
+  });
+
+  assert.deepEqual(result.entries, [
+    {
+      id: 'answer-2',
+      url: 'https://www.zhihu.com/question/1/answer/2',
+      sourceType: 'zhihu_answer'
+    }
+  ]);
+  assert.equal(result.progress.nextOffset, 20);
+  assert.equal(result.progress.completed, false);
+  assert.match(result.warnings[0], /offset 20/i);
+});
+
+test('collectZhihuFavoriteEntries skips invalid or unsupported items but records warnings', async () => {
+  const result = await collectZhihuFavoriteEntries({
+    collectionId: '123456789',
+    fetchPageFn: async () => ({
+      items: [
+        { id: 'empty-url', url: '' },
+        { id: 'unsupported', url: 'https://example.com/post/1' },
+        { id: 'article-3', url: 'https://zhuanlan.zhihu.com/p/3' }
+      ],
+      hasMore: false,
+      nextOffset: 20
+    })
+  });
+
+  assert.deepEqual(result.entries, [
+    {
+      id: 'article-3',
+      url: 'https://zhuanlan.zhihu.com/p/3',
+      sourceType: 'zhihu_article'
+    }
+  ]);
+  assert.equal(result.warnings.length, 2);
+  assert.match(result.warnings[0], /empty-url/);
+  assert.match(result.warnings[1], /unsupported/);
+});
