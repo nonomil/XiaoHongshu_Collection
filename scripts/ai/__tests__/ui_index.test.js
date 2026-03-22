@@ -34,6 +34,18 @@ test('index.html keeps inbox workflow inside entry 03 with recent range select',
   assert.match(html, /最近 60 条/);
 });
 
+test('index.html pairs entry 02 and entry 03 inside a shared action row', () => {
+  const html = readIndexHtml();
+  const quickEntryIndex = html.indexOf('entry-secondary-shell');
+  const manualEntryIndex = html.indexOf('入口 01');
+  assert.ok(quickEntryIndex >= 0);
+  assert.ok(manualEntryIndex >= 0);
+  assert.ok(quickEntryIndex < manualEntryIndex);
+  assert.match(html, /entry-secondary-header/);
+  assert.match(html, /entry-secondary-grid/);
+  assert.match(html, /entry-secondary-card/);
+});
+
 test('index.html contains inbox category settings field', () => {
   const html = readIndexHtml();
   assert.match(html, /收件箱分类规则/);

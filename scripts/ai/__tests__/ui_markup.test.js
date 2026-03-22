@@ -35,3 +35,12 @@ test('styles.css contains result group action hierarchy styles', () => {
 test('styles.css contains result group warning badge styles', () => {
   assert.match(css, /\.result-group-warning-count/);
 });
+
+test('styles.css contains paired entry layout styles for entry 02 and 03', () => {
+  assert.match(css, /\.entry-secondary-shell/);
+  assert.match(css, /\.entry-secondary-header/);
+  assert.match(css, /\.entry-secondary-grid/);
+  assert.match(css, /\.entry-secondary-card/);
+  assert.match(css, /\.button\.button-block/);
+  assert.match(css, /grid-template-columns:\s*minmax\(0,\s*0\.9fr\)\s+minmax\(0,\s*1\.1fr\)/);
+});

@@ -105,6 +105,12 @@ async function saveInboxUrls({
       const summary = await saveLinks(url, {
         source: 'inbox',
         outputRoot: INBOX_OUTPUT_ROOT,
+        mirrorTargets: [
+          {
+            outputRoot: INBOX_OUTPUT_ROOT,
+            collection: '全部'
+          }
+        ],
         collectionResolver: ({ note }) => classifyInboxNote({
           title: note?.title || '',
           content: note?.content || '',

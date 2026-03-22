@@ -88,6 +88,12 @@ test('saveInboxUrls injects inbox output root and classifier', async () => {
   assert.ok(seenOptions);
   assert.match(seenOptions.outputRoot, /收件箱同步/);
   assert.equal(typeof seenOptions.collectionResolver, 'function');
+  assert.deepEqual(seenOptions.mirrorTargets, [
+    {
+      outputRoot: seenOptions.outputRoot,
+      collection: '全部'
+    }
+  ]);
 });
 
 test('saveInboxUrls uses explicitly provided urls instead of the full inbox file', async () => {

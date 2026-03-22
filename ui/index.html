@@ -27,7 +27,90 @@
 
     <section class="layout">
       <div class="stack">
-        <article class="card">
+        <section class="entry-secondary-shell" aria-label="快捷批量入口">
+          <div class="entry-secondary-header">
+            <div>
+              <p class="card-kicker">快捷批量入口</p>
+              <h2>收藏导出与收件箱同步</h2>
+            </div>
+            <p class="entry-secondary-lead">把常用批量入口放在最前面。你登录好浏览器后，可以直接在这一排完成收藏导出或收件箱同步。</p>
+          </div>
+
+          <div class="entry-secondary-grid">
+            <article class="card accent entry-secondary-card">
+              <div class="card-head">
+                <p class="card-kicker">入口 02</p>
+                <h2>收藏导出 + OCR</h2>
+                <p>适合一次性导出当前收藏内容，直接走收藏抓取与 OCR 写回流程。</p>
+              </div>
+
+              <div class="card-body">
+                <div class="inline-hints">
+                  <span>extract_v4.js</span>
+                  <span>ocr_and_write.js</span>
+                  <span>本地归档</span>
+                </div>
+                <div class="entry-secondary-actions">
+                  <p class="entry-secondary-copy">更适合“我已经登录好了，现在就把这一批收藏直接落地到本地”的使用场景。</p>
+                  <div class="button-row">
+                    <button id="collection-submit" class="button secondary button-block" type="button">开始导出收藏</button>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="card inbox-card entry-secondary-card">
+              <div class="card-head">
+                <p class="card-kicker">入口 03</p>
+                <h2>外部收件箱</h2>
+                <p>把外部服务里的链接先同步到本地收件箱，再继续解析保存。同步和落地都集中在这里。</p>
+              </div>
+              <div class="card-body">
+                <div class="inline-hints">
+                  <span>Pushbullet</span>
+                  <span>IFTTT</span>
+                  <span>飞书</span>
+                </div>
+                <div class="task-flow">
+                  <section class="task-step" aria-label="步骤一 同步到收件箱">
+                    <div class="task-step-head">
+                      <span class="task-step-index">步骤 1</span>
+                      <strong>同步到收件箱</strong>
+                    </div>
+                    <p class="task-step-copy">先拉取最近消息到本地收件箱。建议优先同步最近 20 / 30 条确认状态，再决定是否拉全部。</p>
+                    <div class="inbox-sync-toolbar">
+                      <label class="inbox-sync-range-field">
+                        <span>同步范围</span>
+                        <select id="inbox-sync-range">
+                          <option value="10">最近 10 条</option>
+                          <option value="20">最近 20 条</option>
+                          <option value="30">最近 30 条</option>
+                          <option value="50">最近 50 条</option>
+                          <option value="60">最近 60 条</option>
+                        </select>
+                      </label>
+                      <button id="inbox-sync-latest" class="button secondary" type="button">同步最近消息</button>
+                      <button id="inbox-sync-all" class="button ghost" type="button">同步全部</button>
+                    </div>
+                  </section>
+
+                  <section class="task-step" aria-label="步骤二 解析保存">
+                    <div class="task-step-head">
+                      <span class="task-step-index">步骤 2</span>
+                      <strong>收件箱解析保存</strong>
+                    </div>
+                    <p class="task-step-copy">同步完成后，直接继续解析并保存到本地目录，不需要再回到页面顶部找下一步。</p>
+                    <div class="button-row">
+                      <button id="inbox-save" class="button button-block" type="button">收件箱解析保存</button>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <article class="card manual-entry-card">
           <div class="card-head">
             <p class="card-kicker">入口 01</p>
             <h2>链接保存笔记</h2>
@@ -37,80 +120,13 @@
           <form id="links-form" class="card-body">
             <label class="field">
               <span>分享文本或多行链接</span>
-              <textarea id="links-text" name="text" rows="10" placeholder="把分享文案、多个小红书链接或混合文本粘贴到这里"></textarea>
+              <textarea id="links-text" name="text" rows="8" placeholder="把分享文案、多个小红书链接或混合文本粘贴到这里"></textarea>
             </label>
             <div class="button-row">
               <button id="links-submit" class="button" type="submit">开始保存链接</button>
               <button id="links-clear" class="button ghost" type="button">清空文本</button>
             </div>
           </form>
-        </article>
-
-        <article class="card accent">
-          <div class="card-head">
-            <p class="card-kicker">入口 02</p>
-            <h2>收藏导出 + OCR</h2>
-            <p>执行收藏夹抓取与 OCR 写入流程，适合一次性导出当前收藏内容。</p>
-          </div>
-
-          <div class="card-body">
-            <div class="inline-hints">
-              <span>extract_v4.js</span>
-              <span>ocr_and_write.js</span>
-            </div>
-            <div class="button-row">
-              <button id="collection-submit" class="button secondary" type="button">开始导出收藏</button>
-            </div>
-          </div>
-        </article>
-
-        <article class="card inbox-card">
-          <div class="card-head">
-            <p class="card-kicker">入口 03</p>
-            <h2>外部收件箱</h2>
-            <p>把外部服务里的链接先同步到本地收件箱，再执行解析保存。同步和保存都放在这里，流程更完整。</p>
-          </div>
-          <div class="card-body">
-            <div class="inline-hints">
-              <span>Pushbullet</span>
-              <span>IFTTT</span>
-              <span>飞书</span>
-            </div>
-            <div class="task-flow">
-              <section class="task-step" aria-label="步骤一 同步到收件箱">
-                <div class="task-step-head">
-                  <span class="task-step-index">步骤 1</span>
-                  <strong>同步到收件箱</strong>
-                </div>
-                <p class="task-step-copy">先拉取最近消息到本地收件箱，适合先快速看最新 10 / 20 / 30 条，也可一次同步全部。</p>
-                <div class="inbox-sync-toolbar">
-                  <label class="inbox-sync-range-field">
-                    <span>同步范围</span>
-                    <select id="inbox-sync-range">
-                      <option value="10">最近 10 条</option>
-                      <option value="20">最近 20 条</option>
-                      <option value="30">最近 30 条</option>
-                      <option value="50">最近 50 条</option>
-                      <option value="60">最近 60 条</option>
-                    </select>
-                  </label>
-                  <button id="inbox-sync-latest" class="button secondary" type="button">同步最近消息</button>
-                  <button id="inbox-sync-all" class="button ghost" type="button">同步全部</button>
-                </div>
-              </section>
-
-              <section class="task-step" aria-label="步骤二 解析保存">
-                <div class="task-step-head">
-                  <span class="task-step-index">步骤 2</span>
-                  <strong>收件箱解析保存</strong>
-                </div>
-                <p class="task-step-copy">同步完成后，直接在这里继续解析并保存到本地目录，不需要再回到页面顶部找下一步。</p>
-                <div class="button-row">
-                  <button id="inbox-save" class="button" type="button">收件箱解析保存</button>
-                </div>
-              </section>
-            </div>
-          </div>
         </article>
       </div>
 

@@ -207,6 +207,50 @@ test('processSingleNoteExport emits comment_login_required warning for login-gat
   assert.match(result.warnings[0].message, /登录/);
 });
 
+test('processSingleNoteExport mirrors inbox exports into a total folder while keeping categorized copy', async () => {
+  const tempRoot = createTempDir('xhs-process-export-mirror-');
+  const outputRoot = path.join(tempRoot, '收件箱同步');
+  const imagesRoot = path.join(tempRoot, '_images');
+  const configPath = path.join(tempRoot, 'openrouter.json');
+  const visionConfigPath = path.join(tempRoot, 'vision-ocr.json');
+  fs.writeFileSync(configPath, JSON.stringify({ enabled: false }), 'utf-8');
+  fs.writeFileSync(visionConfigPath, JSON.stringify({ enabled: false }), 'utf-8');
+
+  const result = await processSingleNoteExport({
+    outputRoot,
+    imagesRoot,
+    configPath,
+    visionConfigPath,
+    mirrorTargets: [
+      {
+        outputRoot,
+        collection: '全部'
+      }
+    ],
+    note: {
+      title: '镜像导出测试',
+      noteId: 'mirror123',
+      author: '作者',
+      collection: 'AI',
+      date: '2026-03-22',
+      tags: [],
+      images: [],
+      content: '正文内容',
+      comments: [
+        { commentId: 'c1', author: '评论者', content: '评论内容' }
+      ]
+    }
+  });
+
+  assert.match(result.filepath, /收件箱同步[\\/]+AI[\\/]+镜像导出测试\.md$/);
+  assert.deepEqual(result.mirrorFilepaths.length, 1);
+  assert.match(result.mirrorFilepaths[0], /收件箱同步[\\/]+全部[\\/]+镜像导出测试\.md$/);
+  assert.equal(fs.existsSync(result.filepath), true);
+  assert.equal(fs.existsSync(result.mirrorFilepaths[0]), true);
+  assert.equal(fs.existsSync(result.commentArchivePath), true);
+  assert.equal(fs.existsSync(result.mirrorCommentArchivePaths[0]), true);
+});
+
 test('renderUsefulComments returns fallback when no useful comments are kept', () => {
   const section = renderUsefulComments([]);
   assert.match(section, /未筛出高价值评论/);
@@ -477,6 +521,8 @@ test('processSingleNoteExport returns a stable result shape when comments exist'
   assert.equal(Array.isArray(result.usefulComments), true);
   assert.equal(typeof result.commentSummary, 'string');
   assert.equal(Array.isArray(result.warnings), true);
+   assert.equal(Object.hasOwn(result, 'mirrorFilepaths'), false);
+   assert.equal(Object.hasOwn(result, 'mirrorCommentArchivePaths'), false);
 });
 
 test('processSingleNoteExport returns a stable result shape when comments are absent', async () => {
@@ -518,6 +564,8 @@ test('processSingleNoteExport returns a stable result shape when comments are ab
   assert.equal(Array.isArray(result.usefulComments), true);
   assert.equal(typeof result.commentSummary, 'string');
   assert.equal(Array.isArray(result.warnings), true);
+   assert.equal(Object.hasOwn(result, 'mirrorFilepaths'), false);
+   assert.equal(Object.hasOwn(result, 'mirrorCommentArchivePaths'), false);
 });
 
 test('processSingleNoteExport can resolve final collection after summary and tags are ready', async () => {

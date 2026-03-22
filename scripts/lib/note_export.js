@@ -453,6 +453,77 @@ function writeSingleNoteMarkdown({
   return targetPath;
 }
 
+function normalizeMirrorTargets(targets = []) {
+  const seen = new Set();
+  const normalized = [];
+
+  for (const target of Array.isArray(targets) ? targets : []) {
+    const outputRoot = String(target?.outputRoot || '').trim();
+    const collection = String(target?.collection || '').trim();
+    if (!outputRoot || !collection) continue;
+    const key = `${path.resolve(outputRoot)}::${collection}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push({ outputRoot, collection });
+  }
+
+  return normalized;
+}
+
+function writeMirrorExports({
+  mirrorTargets,
+  note,
+  content,
+  ocrTexts,
+  summary,
+  tags,
+  commentSummary,
+  usefulComments,
+  commentError,
+  conflictStrategy,
+  maxTitleLength
+}) {
+  const targets = normalizeMirrorTargets(mirrorTargets);
+  const filepaths = [];
+  const commentArchivePaths = [];
+
+  for (const target of targets) {
+    const mirrorNote = {
+      ...note,
+      collection: target.collection
+    };
+    const filepath = writeSingleNoteMarkdown({
+      outputRoot: target.outputRoot,
+      note: mirrorNote,
+      content,
+      ocrTexts,
+      summary,
+      tags,
+      commentSummary,
+      usefulComments,
+      commentError,
+      conflictStrategy,
+      maxTitleLength
+    });
+    filepaths.push(filepath);
+
+    if (Array.isArray(note.comments) && note.comments.length > 0) {
+      const archivePath = writeCommentArchive({
+        outputRoot: path.join(target.outputRoot, target.collection),
+        noteId: mirrorNote.noteId,
+        noteTitle: mirrorNote.title,
+        comments: note.comments
+      });
+      commentArchivePaths.push(archivePath);
+    }
+  }
+
+  return {
+    filepaths,
+    commentArchivePaths
+  };
+}
+
 function getVisionOcrEndpoint(config) {
   return `${String(config.baseUrl || '').replace(/\/$/, '')}/responses`;
 }
@@ -889,7 +960,8 @@ async function processSingleNoteExport({
   conflictStrategy,
   maxTitleLength,
   runtime,
-  collectionResolver
+  collectionResolver,
+  mirrorTargets
 }) {
   const projectDir = path.dirname(outputRoot);
   const config = applyRuntimeOverrides(loadOpenRouterConfig({ projectDir, configPath }), runtime);
@@ -969,8 +1041,21 @@ async function processSingleNoteExport({
     conflictStrategy,
     maxTitleLength
   });
+  const mirrorExport = writeMirrorExports({
+    mirrorTargets,
+    note: noteForWrite,
+    content,
+    ocrTexts,
+    summary,
+    tags,
+    commentSummary,
+    usefulComments,
+    commentError,
+    conflictStrategy,
+    maxTitleLength
+  });
 
-  return buildSingleNoteExportResult({
+  const result = buildSingleNoteExportResult({
     filepath,
     commentArchivePath,
     content,
@@ -981,6 +1066,13 @@ async function processSingleNoteExport({
     usefulComments,
     warnings
   });
+
+  if (mirrorExport.filepaths.length > 0 || mirrorExport.commentArchivePaths.length > 0) {
+    result.mirrorFilepaths = mirrorExport.filepaths;
+    result.mirrorCommentArchivePaths = mirrorExport.commentArchivePaths;
+  }
+
+  return result;
 }
 
 module.exports = {

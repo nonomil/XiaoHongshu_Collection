@@ -831,6 +831,7 @@ async function saveMode(mode, options = {}) {
       return exportNote({
         outputRoot: options.outputRoot || OUTPUT_DIR,
         imagesRoot: options.imagesRoot || IMG_DIR,
+        mirrorTargets: options.mirrorTargets,
         note: noteWithSource,
         configPath: options.configPath || CONFIG_PATH,
         visionConfigPath: options.visionConfigPath,
