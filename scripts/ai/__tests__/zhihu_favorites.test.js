@@ -7,6 +7,7 @@ const {
   buildZhihuCollectionApiUrl,
   buildZhihuFavoritesPaths,
   collectZhihuFavoriteEntries,
+  fetchZhihuCollectionPage,
   normalizeZhihuCollectionPage,
   parseZhihuCollectionId,
   readZhihuFavoritesProgress,
@@ -131,6 +132,61 @@ test('normalizeZhihuCollectionPage maps raw Zhihu api payload into collector pag
     hasMore: true,
     nextOffset: 20,
     totals: 88
+  });
+});
+
+test('fetchZhihuCollectionPage requests Zhihu api with cookie header and returns normalized page', async () => {
+  let captured = null;
+  const page = await fetchZhihuCollectionPage({
+    collectionId: '123456789',
+    offset: 20,
+    limit: 10,
+    cookie: 'd_c0=abc123',
+    requestJsonFn: async (url, options = {}) => {
+      captured = { url, options };
+      return {
+        data: [
+          {
+            content: {
+              id: '101',
+              type: 'answer',
+              url: 'https://www.zhihu.com/question/1/answer/101',
+              question: { title: '问题 1' }
+            },
+            created_time: 1700000000
+          }
+        ],
+        paging: {
+          is_end: true,
+          next: 'https://www.zhihu.com/api/v4/collections/123456789/items?offset=30&limit=10',
+          totals: 1
+        }
+      };
+    }
+  });
+
+  assert.deepEqual(captured, {
+    url: 'https://www.zhihu.com/api/v4/collections/123456789/items?offset=20&limit=10',
+    options: {
+      headers: {
+        Accept: 'application/json',
+        Cookie: 'd_c0=abc123'
+      }
+    }
+  });
+  assert.deepEqual(page, {
+    items: [
+      {
+        id: '101',
+        url: 'https://www.zhihu.com/question/1/answer/101',
+        title: '问题 1',
+        type: 'answer',
+        createdTime: 1700000000
+      }
+    ],
+    hasMore: false,
+    nextOffset: 30,
+    totals: 1
   });
 });
 

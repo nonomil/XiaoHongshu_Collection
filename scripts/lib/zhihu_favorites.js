@@ -1,4 +1,6 @@
 const fs = require('fs');
+const http = require('http');
+const https = require('https');
 const path = require('path');
 const { detectSourceFromUrl } = require('./source_detector');
 
@@ -28,6 +30,34 @@ function buildZhihuCollectionApiUrl({
   const normalized_offset = Math.max(0, Number(offset || 0) || 0);
   const normalized_limit = Math.max(1, Number(limit || 20) || 20);
   return `https://www.zhihu.com/api/v4/collections/${normalized_collection_id}/items?offset=${normalized_offset}&limit=${normalized_limit}`;
+}
+
+function requestJson(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const target = String(url || '').trim();
+    const transport = target.startsWith('https://') ? https : http;
+    const request = transport.get(target, {
+      headers: options.headers || {}
+    }, (response) => {
+      let raw = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => { raw += chunk; });
+      response.on('end', () => {
+        if (response.statusCode && response.statusCode >= 400) {
+          reject(new Error(`Zhihu favorites api request failed: ${response.statusCode}`));
+          return;
+        }
+
+        try {
+          resolve(JSON.parse(raw || '{}'));
+        } catch (error) {
+          reject(new Error(`Invalid Zhihu favorites api response: ${error.message}`));
+        }
+      });
+    });
+
+    request.on('error', reject);
+  });
 }
 
 function sanitizeCollectionTitle(value) {
@@ -159,6 +189,28 @@ function normalizeZhihuCollectionPage(payload = {}) {
   };
 }
 
+async function fetchZhihuCollectionPage({
+  collectionId,
+  offset = 0,
+  limit = 20,
+  cookie = '',
+  requestJsonFn = requestJson
+} = {}) {
+  const headers = {
+    Accept: 'application/json'
+  };
+  const normalized_cookie = String(cookie || '').trim();
+  if (normalized_cookie) {
+    headers.Cookie = normalized_cookie;
+  }
+
+  const payload = await requestJsonFn(
+    buildZhihuCollectionApiUrl({ collectionId, offset, limit }),
+    { headers }
+  );
+  return normalizeZhihuCollectionPage(payload);
+}
+
 async function collectZhihuFavoriteEntries({
   collectionId,
   progress,
@@ -266,6 +318,7 @@ module.exports = {
   buildZhihuCollectionApiUrl,
   buildZhihuFavoritesPaths,
   collectZhihuFavoriteEntries,
+  fetchZhihuCollectionPage,
   normalizeZhihuCollectionPage,
   parseZhihuCollectionId,
   readZhihuFavoritesProgress,
