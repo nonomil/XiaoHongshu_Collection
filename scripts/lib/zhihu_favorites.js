@@ -123,23 +123,43 @@ function normalizeFavoriteEntry(item = {}) {
 async function collectZhihuFavoriteEntries({
   collectionId,
   progress,
+  progressPath,
   fetchPageFn,
   paceFn,
-  limit = 20
+  limit = 20,
+  continueOnPageError = false
 } = {}) {
   if (typeof fetchPageFn !== 'function') {
     throw new Error('collectZhihuFavoriteEntries requires fetchPageFn');
   }
 
+  const base_progress = progress || (progressPath ? readZhihuFavoritesProgress(progressPath) : {});
   const normalized_progress = normalizeProgress({
     collectionId,
-    ...(progress || {})
+    ...(base_progress || {})
   });
   const seen_ids = new Set(normalized_progress.exportedIds);
   const warnings = [...normalized_progress.warnings];
   const entries = [];
   let offset = normalized_progress.nextOffset;
   let has_more = true;
+
+  const persistProgress = (overrides = {}) => {
+    const next_progress = normalizeProgress({
+      ...normalized_progress,
+      nextOffset: offset,
+      exportedIds: Array.from(seen_ids),
+      completed: has_more === false,
+      warnings,
+      ...overrides
+    });
+
+    if (progressPath) {
+      writeZhihuFavoritesProgress(progressPath, next_progress);
+    }
+
+    return next_progress;
+  };
 
   while (has_more) {
     let page;
@@ -151,7 +171,11 @@ async function collectZhihuFavoriteEntries({
       });
     } catch (error) {
       warnings.push(`failed to fetch favorites page at offset ${offset}: ${error.message}`);
-      break;
+      if (!continueOnPageError) {
+        break;
+      }
+      offset += limit;
+      continue;
     }
 
     const items = Array.isArray(page?.items) ? page.items : [];
@@ -180,17 +204,14 @@ async function collectZhihuFavoriteEntries({
         limit
       });
     }
+
+    persistProgress();
   }
 
   return {
     entries,
     warnings,
-    progress: normalizeProgress({
-      ...normalized_progress,
-      nextOffset: offset,
-      completed: has_more === false,
-      warnings
-    })
+    progress: persistProgress()
   };
 }
 

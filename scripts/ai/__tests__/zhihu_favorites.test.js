@@ -125,7 +125,7 @@ test('collectZhihuFavoriteEntries paginates from saved offset and skips exported
   assert.deepEqual(result.progress, {
     collectionId: '123456789',
     nextOffset: 60,
-    exportedIds: ['answer-1'],
+    exportedIds: ['answer-1', 'answer-2', 'article-3'],
     completed: true,
     warnings: []
   });
@@ -159,6 +159,7 @@ test('collectZhihuFavoriteEntries keeps earlier pages and returns warnings when 
   ]);
   assert.equal(result.progress.nextOffset, 20);
   assert.equal(result.progress.completed, false);
+  assert.deepEqual(result.progress.exportedIds, ['answer-2']);
   assert.match(result.warnings[0], /offset 20/i);
 });
 
@@ -186,4 +187,86 @@ test('collectZhihuFavoriteEntries skips invalid or unsupported items but records
   assert.equal(result.warnings.length, 2);
   assert.match(result.warnings[0], /empty-url/);
   assert.match(result.warnings[1], /unsupported/);
+});
+
+test('collectZhihuFavoriteEntries writes normalized progress to progressPath after pagination', async () => {
+  const tempRoot = createTempDir('zhihu-favorites-');
+  const progressPath = path.join(tempRoot, '_state', 'export-progress-123456789.json');
+
+  const result = await collectZhihuFavoriteEntries({
+    collectionId: '123456789',
+    progressPath,
+    fetchPageFn: async ({ offset }) => {
+      if (offset === 0) {
+        return {
+          items: [
+            { id: 'answer-2', url: 'https://www.zhihu.com/question/1/answer/2' }
+          ],
+          hasMore: true,
+          nextOffset: 20
+        };
+      }
+
+      return {
+        items: [
+          { id: 'article-3', url: 'https://zhuanlan.zhihu.com/p/3' }
+        ],
+        hasMore: false,
+        nextOffset: 40
+      };
+    }
+  });
+
+  assert.equal(fs.existsSync(progressPath), true);
+  assert.deepEqual(readZhihuFavoritesProgress(progressPath), result.progress);
+  assert.deepEqual(result.progress.exportedIds, ['answer-2', 'article-3']);
+  assert.equal(result.progress.completed, true);
+  assert.equal(result.progress.nextOffset, 40);
+});
+
+test('collectZhihuFavoriteEntries can continue after page failure when enabled', async () => {
+  const result = await collectZhihuFavoriteEntries({
+    collectionId: '123456789',
+    continueOnPageError: true,
+    limit: 20,
+    fetchPageFn: async ({ offset }) => {
+      if (offset === 0) {
+        return {
+          items: [
+            { id: 'answer-2', url: 'https://www.zhihu.com/question/1/answer/2' }
+          ],
+          hasMore: true,
+          nextOffset: 20
+        };
+      }
+
+      if (offset === 20) {
+        throw new Error('mock page failure');
+      }
+
+      return {
+        items: [
+          { id: 'article-3', url: 'https://zhuanlan.zhihu.com/p/3' }
+        ],
+        hasMore: false,
+        nextOffset: 60
+      };
+    }
+  });
+
+  assert.deepEqual(result.entries, [
+    {
+      id: 'answer-2',
+      url: 'https://www.zhihu.com/question/1/answer/2',
+      sourceType: 'zhihu_answer'
+    },
+    {
+      id: 'article-3',
+      url: 'https://zhuanlan.zhihu.com/p/3',
+      sourceType: 'zhihu_article'
+    }
+  ]);
+  assert.equal(result.progress.completed, true);
+  assert.equal(result.progress.nextOffset, 60);
+  assert.match(result.warnings[0], /offset 20/i);
 });
