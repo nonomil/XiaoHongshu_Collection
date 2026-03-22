@@ -4,8 +4,10 @@ const fs = require('fs');
 const path = require('path');
 
 const {
+  buildZhihuCollectionApiUrl,
   buildZhihuFavoritesPaths,
   collectZhihuFavoriteEntries,
+  normalizeZhihuCollectionPage,
   parseZhihuCollectionId,
   readZhihuFavoritesProgress,
   writeZhihuFavoritesProgress
@@ -16,6 +18,17 @@ test('parseZhihuCollectionId extracts collection id from Zhihu favorites url', (
   assert.equal(
     parseZhihuCollectionId('https://www.zhihu.com/collection/123456789'),
     '123456789'
+  );
+});
+
+test('buildZhihuCollectionApiUrl builds Zhihu collection paging api url', () => {
+  assert.equal(
+    buildZhihuCollectionApiUrl({
+      collectionId: '123456789',
+      offset: 40,
+      limit: 20
+    }),
+    'https://www.zhihu.com/api/v4/collections/123456789/items?offset=40&limit=20'
   );
 });
 
@@ -67,6 +80,58 @@ test('writeZhihuFavoritesProgress persists normalized progress payload', () => {
 
   const saved = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
   assert.deepEqual(saved, progress);
+});
+
+test('normalizeZhihuCollectionPage maps raw Zhihu api payload into collector page shape', () => {
+  const page = normalizeZhihuCollectionPage({
+    data: [
+      {
+        content: {
+          id: '101',
+          type: 'answer',
+          url: 'https://www.zhihu.com/question/1/answer/101',
+          question: { title: '问题 1' }
+        },
+        created_time: 1700000000
+      },
+      {
+        content: {
+          id: '202',
+          type: 'article',
+          url: 'https://zhuanlan.zhihu.com/p/202',
+          title: '文章 202'
+        },
+        created_time: 1700000001
+      }
+    ],
+    paging: {
+      is_end: false,
+      next: 'http://www.zhihu.com/api/v4/collections/123456789/items?offset=20&limit=20',
+      totals: 88
+    }
+  });
+
+  assert.deepEqual(page, {
+    items: [
+      {
+        id: '101',
+        url: 'https://www.zhihu.com/question/1/answer/101',
+        title: '问题 1',
+        type: 'answer',
+        createdTime: 1700000000
+      },
+      {
+        id: '202',
+        url: 'https://zhuanlan.zhihu.com/p/202',
+        title: '文章 202',
+        type: 'article',
+        createdTime: 1700000001
+      }
+    ],
+    hasMore: true,
+    nextOffset: 20,
+    totals: 88
+  });
 });
 
 test('collectZhihuFavoriteEntries paginates from saved offset and skips exported ids', async () => {
@@ -222,6 +287,39 @@ test('collectZhihuFavoriteEntries writes normalized progress to progressPath aft
   assert.deepEqual(result.progress.exportedIds, ['answer-2', 'article-3']);
   assert.equal(result.progress.completed, true);
   assert.equal(result.progress.nextOffset, 40);
+});
+
+test('collectZhihuFavoriteEntries accepts raw Zhihu api page payloads', async () => {
+  const result = await collectZhihuFavoriteEntries({
+    collectionId: '123456789',
+    fetchPageFn: async () => ({
+      data: [
+        {
+          content: {
+            id: '101',
+            type: 'answer',
+            url: 'https://www.zhihu.com/question/1/answer/101',
+            question: { title: '问题 1' }
+          },
+          created_time: 1700000000
+        }
+      ],
+      paging: {
+        is_end: true,
+        next: 'https://www.zhihu.com/api/v4/collections/123456789/items?offset=20&limit=20',
+        totals: 1
+      }
+    })
+  });
+
+  assert.deepEqual(result.entries, [
+    {
+      id: '101',
+      url: 'https://www.zhihu.com/question/1/answer/101',
+      sourceType: 'zhihu_answer'
+    }
+  ]);
+  assert.equal(result.progress.completed, true);
 });
 
 test('collectZhihuFavoriteEntries can continue after page failure when enabled', async () => {
