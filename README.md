@@ -97,8 +97,33 @@ node scripts/ocr_and_write.js
 - 单笔记保存（CLI）：`node scripts/save_note.js <笔记链接>`、`node scripts/save_note.js --current`
 - 单笔记保存（项目登录态复用）：`node scripts/login_browser.js` 后，再执行 `node scripts/save_note.js --browser-headless <链接>`
 - 单笔记保存（当前浏览器增强）：`node scripts/save_note.js --browser-mode current-browser <笔记链接>`
+- 知乎收藏夹导出（实验 CLI）：`node scripts/save_zhihu_favorites.js <收藏夹链接> --cookie "<知乎 Cookie>"`
 - 收藏夹导出（CLI）：`node scripts/extract_v4.js` + `node scripts/ocr_and_write.js`
 - UI 入口：运行 `启动小红书保存入口.bat`，浏览器访问 `http://127.0.0.1:3030/`
+
+## 实验功能：知乎收藏夹导出（CLI）
+
+当前已经有一个第一阶段 CLI，可用于把知乎收藏夹里的文章 / 回答 URL 收集出来，并复用现有单篇保存链路逐条写入本地目录。
+
+最小用法：
+
+```powershell
+node scripts/save_zhihu_favorites.js https://www.zhihu.com/collection/123456789 --cookie "d_c0=..."
+```
+
+可选参数：
+
+- `--title "AI 收藏"`：指定导出目录名，默认使用 `收藏夹 <id>`
+- `--output-root G:\UserCode\XiaoHongshu_Collection\output`：指定输出根目录
+- `--limit 10`：指定每页抓取数量
+
+当前状态：
+
+- 已支持收藏夹 URL 识别
+- 已支持分页 URL 构造、响应归一化、进度文件持久化
+- 已支持失败页 warning 记录和按页续跑
+- 当前仍需要手工通过 `--cookie` 或环境变量 `ZHIHU_COOKIE` 传入知乎登录态
+- 收藏夹标题自动探测、浏览器会话自动取 Cookie、UI 入口还在下一阶段
 
 ## 目录结构
 ```
