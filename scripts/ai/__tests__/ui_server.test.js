@@ -2,6 +2,7 @@ const { afterEach, test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const http = require('http');
+const Module = require('module');
 const path = require('path');
 
 const { createUiServer } = require('../../ui_server');
@@ -34,6 +35,9 @@ async function startServer(overrides = {}) {
     })),
     runInboxSync: overrides.runInboxSync,
     runInboxSave: overrides.runInboxSave,
+    openOutputFolder: overrides.openOutputFolder,
+    openLoginBrowser: overrides.openLoginBrowser,
+    exportLinksList: overrides.exportLinksList,
     uiConfigPath: overrides.uiConfigPath,
     pushbulletConfigPath
   });
@@ -87,6 +91,28 @@ function requestGet(url) {
 
     request.on('error', reject);
   });
+}
+
+function loadUiServerInternals({ saveNoteOverrides = {} } = {}) {
+  const filename = path.resolve(__dirname, '..', '..', 'ui_server.js');
+  const source = `${fs.readFileSync(filename, 'utf-8')}\nmodule.exports.__runSaveLinksWithProgress = runSaveLinksWithProgress;\n`;
+  const internalModule = new Module(filename, module);
+  const projectRequire = Module.createRequire(filename);
+
+  internalModule.filename = filename;
+  internalModule.paths = Module._nodeModulePaths(path.dirname(filename));
+  internalModule.require = (specifier) => {
+    if (specifier === './save_note') {
+      return {
+        ...projectRequire(specifier),
+        ...saveNoteOverrides
+      };
+    }
+    return projectRequire(specifier);
+  };
+
+  internalModule._compile(source, filename);
+  return internalModule.exports;
 }
 
 test('save-links api rejects empty text payloads', async () => {
@@ -208,6 +234,34 @@ test('inbox sync api returns a normalized success payload', async () => {
   assert.equal(response.body.report.total, 3);
 });
 
+test('inbox sync api forwards recent mode and limit', async () => {
+  let capturedArgs;
+  const { baseUrl } = await startServer({
+    runInboxSync: async (args) => {
+      capturedArgs = args;
+      return {
+        mode: 'recent',
+        limit: 20,
+        added: 2,
+        skipped: 0,
+        total: 2
+      };
+    }
+  });
+
+  const response = await requestJson(`${baseUrl}/api/inbox/sync`, {
+    mode: 'recent',
+    limit: 20
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.report.mode, 'recent');
+  assert.equal(response.body.report.limit, 20);
+  assert.equal(capturedArgs.mode, 'recent');
+  assert.equal(capturedArgs.limit, 20);
+});
+
 test('inbox save api returns a normalized success payload', async () => {
   const { baseUrl } = await startServer({
     runInboxSave: async () => ({
@@ -222,6 +276,65 @@ test('inbox save api returns a normalized success payload', async () => {
   assert.equal(response.body.ok, true);
   assert.equal(response.body.report.total, 2);
   assert.equal(response.body.report.successCount, 2);
+});
+
+test('inbox save api forwards selected urls from the last sync context', async () => {
+  let capturedArgs;
+  const { baseUrl } = await startServer({
+    runInboxSave: async (args) => {
+      capturedArgs = args;
+      return {
+        total: 1,
+        summary: { total: 1, successCount: 1, failureCount: 0, results: [] }
+      };
+    }
+  });
+
+  const response = await requestJson(`${baseUrl}/api/inbox/save`, {
+    urls: ['https://mp.weixin.qq.com/s/demo'],
+    syncReport: {
+      mode: 'recent',
+      limit: 30
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.ok, true);
+  assert.deepEqual(capturedArgs.urls, ['https://mp.weixin.qq.com/s/demo']);
+  assert.deepEqual(capturedArgs.syncReport, { mode: 'recent', limit: 30 });
+});
+
+test('inbox save path forwards browser settings into saveLinksText wrapper', async () => {
+  let capturedOptions;
+  const { baseUrl } = await startServer({
+    saveLinksText: async (_text, options = {}) => {
+      capturedOptions = options;
+      return {
+        total: 1,
+        successCount: 1,
+        failureCount: 0,
+        results: [{ status: 'success', filepath: 'G:/output/demo.md' }]
+      };
+    }
+  });
+
+  const response = await requestJson(`${baseUrl}/api/inbox/save`, {
+    urls: ['http://xhslink.com/o/demo'],
+    uiConfig: {
+      browser: {
+        headless: true,
+        mode: 'isolated',
+        channel: 'beta'
+      }
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.ok, true);
+  assert.ok(capturedOptions);
+  assert.equal(capturedOptions.browser.headless, true);
+  assert.equal(capturedOptions.browser.mode, 'isolated');
+  assert.equal(capturedOptions.browser.channel, 'beta');
 });
 
 test('save-collection api surfaces login-related errors in response', async () => {
@@ -271,6 +384,37 @@ test('ui config api persists updates', async () => {
   assert.equal(getResponse.body.config.paths.saveLinksOutputRoot, 'G:/custom/output');
 });
 
+test('browser login api opens a headed project session using stored browser settings', async () => {
+  let capturedArgs;
+  const { baseUrl } = await startServer({
+    openLoginBrowser: async (args) => {
+      capturedArgs = args;
+      return {
+        profileDir: 'G:/UserCode/XiaoHongshu_Collection/cache/chrome-debug',
+        debugUrl: 'http://127.0.0.1:9222/json',
+        url: 'https://www.xiaohongshu.com/explore',
+        pid: 1234
+      };
+    }
+  });
+
+  const response = await requestJson(`${baseUrl}/api/browser/login`, {
+    uiConfig: {
+      browser: {
+        channel: 'beta',
+        headless: true
+      }
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.profileDir, 'G:/UserCode/XiaoHongshu_Collection/cache/chrome-debug');
+  assert.equal(response.body.pid, 1234);
+  assert.equal(capturedArgs.browser.channel, 'beta');
+  assert.equal(capturedArgs.browser.headless, false);
+});
+
 test('save-links passes ui config overrides to saveLinksText', async () => {
   let capturedOptions;
   const { baseUrl } = await startServer({
@@ -288,6 +432,11 @@ test('save-links passes ui config overrides to saveLinksText', async () => {
   const response = await requestJson(`${baseUrl}/api/save-links`, {
     text: 'https://www.xiaohongshu.com/explore/abc123',
     uiConfig: {
+      browser: {
+        mode: 'current-browser',
+        browserUrl: 'http://127.0.0.1:9333',
+        channel: 'beta'
+      },
       paths: {
         saveLinksOutputRoot: 'G:/custom/output',
         saveLinksImagesRoot: 'G:/custom/images'
@@ -295,6 +444,14 @@ test('save-links passes ui config overrides to saveLinksText', async () => {
       naming: {
         conflictStrategy: 'content-aware',
         maxTitleLength: 60
+      },
+      runtime: {
+        autoClassifyLinksEnabled: true
+      },
+      inbox: {
+        categories: {
+          AI: ['AI', 'Agent']
+        }
       }
     }
   });
@@ -302,8 +459,66 @@ test('save-links passes ui config overrides to saveLinksText', async () => {
   assert.equal(response.statusCode, 200);
   assert.equal(capturedOptions.outputRoot, 'G:/custom/output');
   assert.equal(capturedOptions.imagesRoot, 'G:/custom/images');
+  assert.equal(capturedOptions.browser.mode, 'current-browser');
+  assert.equal(capturedOptions.browser.browserUrl, 'http://127.0.0.1:9333');
+  assert.equal(capturedOptions.browser.channel, 'beta');
   assert.equal(capturedOptions.conflictStrategy, 'content-aware');
   assert.equal(capturedOptions.maxTitleLength, 60);
+  assert.equal(capturedOptions.uiRuntime.autoClassifyLinksEnabled, true);
+  assert.deepEqual(capturedOptions.classificationCategories, { AI: ['AI', 'Agent'] });
+});
+
+test('stream save-links path forwards current-browser settings into resolved modes', async () => {
+  let capturedParsed;
+  let capturedMode;
+  let capturedOptions;
+  const browser = {
+    mode: 'current-browser',
+    browserUrl: 'http://127.0.0.1:9333',
+    channel: 'beta'
+  };
+  const uiServer = loadUiServerInternals({
+    saveNoteOverrides: {
+      resolveRunModes: async (parsed) => {
+        capturedParsed = parsed;
+        return [{
+          mode: 'url',
+          noteId: 'abc123',
+          canonicalUrl: 'https://www.xiaohongshu.com/discovery/item/abc123',
+          navigationUrl: 'https://www.xiaohongshu.com/explore/abc123',
+          browser: parsed.browser
+        }];
+      },
+      saveMode: async (mode, options) => {
+        capturedMode = mode;
+        capturedOptions = options;
+        return { result: { filepath: 'G:/output/abc123.md' } };
+      }
+    }
+  });
+
+  const result = await uiServer.__runSaveLinksWithProgress({
+    text: 'https://www.xiaohongshu.com/explore/abc123',
+    uiConfig: {
+      browser,
+      paths: {},
+      naming: {},
+      runtime: {
+        autoClassifyLinksEnabled: true
+      },
+      inbox: {
+        categories: {
+          AI: ['AI']
+        }
+      }
+    }
+  });
+
+  assert.equal(result.report.successCount, 1);
+  assert.deepEqual(capturedParsed.browser, browser);
+  assert.deepEqual(capturedMode.browser, browser);
+  assert.equal(capturedOptions.uiRuntime.autoClassifyLinksEnabled, true);
+  assert.deepEqual(capturedOptions.classificationCategories, { AI: ['AI'] });
 });
 
 test('save-collection passes ui config overrides to runCollectionExport', async () => {
@@ -332,6 +547,106 @@ test('save-collection passes ui config overrides to runCollectionExport', async 
   assert.equal(response.statusCode, 200);
   assert.equal(capturedOptions.overrides.collectionOutputRoot, 'G:/custom/output');
   assert.equal(capturedOptions.overrides.collectionRawPath, 'G:/custom/raw.json');
+});
+
+test('open-output api opens the directory for successful save-links results', async () => {
+  let capturedArgs;
+  const { baseUrl } = await startServer({
+    openOutputFolder: async (params) => {
+      capturedArgs = params;
+      return path.normalize('G:/output/单条笔记保存');
+    }
+  });
+
+  const response = await requestJson(`${baseUrl}/api/open-output`, {
+    report: {
+      total: 1,
+      successCount: 1,
+      failureCount: 0,
+      results: [
+        { status: 'success', filepath: 'G:/output/单条笔记保存/测试标题.md' }
+      ]
+    },
+    uiConfig: {
+      paths: {
+        saveLinksOutputRoot: 'G:/output/单条笔记保存'
+      }
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.folderPath, path.normalize('G:/output/单条笔记保存'));
+  assert.ok(capturedArgs);
+  assert.equal(capturedArgs.report.results[0].filepath, 'G:/output/单条笔记保存/测试标题.md');
+});
+
+test('open-output api falls back to configured collection output root', async () => {
+  let capturedArgs;
+  const { baseUrl } = await startServer({
+    openOutputFolder: async (params) => {
+      capturedArgs = params;
+      return path.normalize('G:/custom/output');
+    }
+  });
+
+  const response = await requestJson(`${baseUrl}/api/open-output`, {
+    report: {
+      status: 'success',
+      output: {
+        steps: [
+          { script: 'extract_v4.js', code: 0 },
+          { script: 'ocr_and_write.js', code: 0 }
+        ]
+      }
+    },
+    uiConfig: {
+      paths: {
+        collectionOutputRoot: 'G:/custom/output'
+      }
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.folderPath, path.normalize('G:/custom/output'));
+  assert.equal(capturedArgs.uiConfig.paths.collectionOutputRoot, 'G:/custom/output');
+});
+
+test('export-links-list api returns exported txt path for one group', async () => {
+  let capturedArgs;
+  const { baseUrl } = await startServer({
+    exportLinksList: async (params) => {
+      capturedArgs = params;
+      return {
+        filePath: path.normalize('G:/output/_lists/20260321-AI-links.txt'),
+        count: 2,
+        groupKey: 'AI'
+      };
+    }
+  });
+
+  const response = await requestJson(`${baseUrl}/api/export-links-list`, {
+    groupKey: 'AI',
+    report: {
+      results: [
+        { status: 'success', filepath: 'G:/output/AI/a.md', input: 'https://mp.weixin.qq.com/s/abc123' },
+        { status: 'success', filepath: 'G:/output/AI/b.md', canonicalUrl: 'https://www.zhihu.com/question/1/answer/2' }
+      ]
+    },
+    uiConfig: {
+      paths: {
+        saveLinksOutputRoot: 'G:/output'
+      }
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.filePath, path.normalize('G:/output/_lists/20260321-AI-links.txt'));
+  assert.equal(response.body.count, 2);
+  assert.equal(capturedArgs.groupKey, 'AI');
+  assert.equal(capturedArgs.uiConfig.paths.saveLinksOutputRoot, 'G:/output');
 });
 
 test('ui config api merges pushbullet config but does not return access token', async () => {

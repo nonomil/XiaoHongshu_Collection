@@ -95,3 +95,72 @@ test('syncInbox returns mode/since and preserves provider warnings', async () =>
   assert.equal(result.truncated, true);
   assert.equal(result.warning, 'mock warning');
 });
+
+test('syncInbox recent mode does not advance lastModified and returns limit', async () => {
+  resetTmp();
+  fs.writeFileSync(pushbulletConfigPath, JSON.stringify({
+    enabled: true,
+    accessToken: 'token',
+    lastModified: 321,
+    inboxPath: 'data/inbox.jsonl'
+  }, null, 2), 'utf-8');
+
+  let capturedArgs;
+  const result = await syncInbox({
+    pushbulletConfigPath,
+    mode: 'recent',
+    limit: 20,
+    providerFactory: () => ({
+      pull: async (args) => {
+        capturedArgs = args;
+        return {
+          items: [{ url: 'https://example.com/recent' }],
+          nextModified: 999
+        };
+      }
+    }),
+    storeFactory: () => ({
+      append: async () => ({ added: 1, skipped: 0 })
+    })
+  });
+
+  const stored = JSON.parse(fs.readFileSync(pushbulletConfigPath, 'utf-8'));
+  assert.equal(capturedArgs.since, 0);
+  assert.equal(capturedArgs.maxItems, 20);
+  assert.equal(result.mode, 'recent');
+  assert.equal(result.limit, 20);
+  assert.equal(stored.lastModified, 321);
+});
+
+test('syncInbox recent mode returns pulled urls for follow-up save', async () => {
+  resetTmp();
+  fs.writeFileSync(pushbulletConfigPath, JSON.stringify({
+    enabled: true,
+    accessToken: 'token',
+    lastModified: 321,
+    inboxPath: 'data/inbox.jsonl'
+  }, null, 2), 'utf-8');
+
+  const result = await syncInbox({
+    pushbulletConfigPath,
+    mode: 'recent',
+    limit: 2,
+    providerFactory: () => ({
+      pull: async () => ({
+        items: [
+          { url: 'http://xhslink.com/o/abc' },
+          { url: 'https://mp.weixin.qq.com/s/demo' }
+        ],
+        nextModified: 999
+      })
+    }),
+    storeFactory: () => ({
+      append: async () => ({ added: 1, skipped: 1 })
+    })
+  });
+
+  assert.deepEqual(result.urls, [
+    'http://xhslink.com/o/abc',
+    'https://mp.weixin.qq.com/s/demo'
+  ]);
+});

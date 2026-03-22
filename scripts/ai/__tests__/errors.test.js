@@ -28,6 +28,14 @@ test('classifyTaskError detects non-note detail errors', () => {
   assert.equal(info.retriable, false);
 });
 
+test('classifyTaskError detects note unavailable errors from xiaohongshu 404 redirects', () => {
+  const info = classifyTaskError(
+    new Error('无法打开笔记详情页：当前笔记暂时无法浏览（error_code=300031）。当前页面：https://www.xiaohongshu.com/404?...')
+  );
+  assert.equal(info.code, 'note_unavailable');
+  assert.equal(info.retriable, false);
+});
+
 test('pipeline keeps writing when comment fetch fails', async () => {
   let writeCalled = false;
   const error = new CodexTaskError('comment_fetch_failed', 'comment fetch failed', { allowWrite: true });

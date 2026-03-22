@@ -1,12 +1,15 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
 
 const {
   buildBoardNote,
+  buildBrowserTargets,
   buildSingleNote,
   ensureCommentsReady,
   extractImageUrlsFromStateNote,
   expandAllComments,
+  getTabWsUrl,
   isNoteDetailUrl,
   selectDebuggerTab,
   waitForNoteDetailReady,
@@ -350,4 +353,76 @@ test('selectDebuggerTab requires an existing xiaohongshu page for current-page m
       webSocketDebuggerUrl: 'ws://localhost:9222/devtools/page/1'
     }
   ], { requireXiaohongshu: true }), /No xiaohongshu tab found/);
+});
+
+test('buildBrowserTargets prefers explicit browser url', () => {
+  const targets = buildBrowserTargets({
+    browserUrl: 'http://127.0.0.1:9333'
+  });
+
+  assert.deepEqual(targets, ['http://127.0.0.1:9333/json']);
+});
+
+test('buildBrowserTargets reads DevToolsActivePort for current-browser mode and keeps fallback ports', () => {
+  const userDataDir = path.join('C:', 'Users', 'tester', 'AppData', 'Local', 'Google', 'Chrome', 'User Data');
+  const activePortPath = path.join(userDataDir, 'DevToolsActivePort');
+  const targets = buildBrowserTargets(
+    {
+      browserMode: 'current-browser',
+      browserChannel: 'stable'
+    },
+    {
+      env: {
+        LOCALAPPDATA: path.join('C:', 'Users', 'tester', 'AppData', 'Local')
+      },
+      existsSync: (filepath) => filepath === activePortPath,
+      readFileSync: () => '9444\n/devtools/browser/abc123',
+      fallbackPorts: [9222, 9229]
+    }
+  );
+
+  assert.deepEqual(targets, [
+    'http://127.0.0.1:9444/json',
+    'http://127.0.0.1:9222/json',
+    'http://127.0.0.1:9229/json'
+  ]);
+});
+
+test('getTabWsUrl tries multiple browser targets until it finds a xiaohongshu tab', async () => {
+  const calls = [];
+  const wsUrl = await getTabWsUrl({
+    browserMode: 'current-browser',
+    requireXiaohongshu: true,
+    resolveTargets: () => [
+      'http://127.0.0.1:9333/json',
+      'http://127.0.0.1:9444/json'
+    ],
+    fetchTabs: async (target) => {
+      calls.push(target);
+      if (target.includes('9333')) {
+        return [
+          {
+            type: 'page',
+            title: 'about:blank',
+            url: 'about:blank',
+            webSocketDebuggerUrl: 'ws://127.0.0.1:9333/devtools/page/1'
+          }
+        ];
+      }
+      return [
+        {
+          type: 'page',
+          title: 'xhs note',
+          url: 'https://www.xiaohongshu.com/explore/abc123',
+          webSocketDebuggerUrl: 'ws://127.0.0.1:9444/devtools/page/2'
+        }
+      ];
+    }
+  });
+
+  assert.deepEqual(calls, [
+    'http://127.0.0.1:9333/json',
+    'http://127.0.0.1:9444/json'
+  ]);
+  assert.equal(wsUrl, 'ws://127.0.0.1:9444/devtools/page/2');
 });

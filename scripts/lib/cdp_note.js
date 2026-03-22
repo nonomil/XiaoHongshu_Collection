@@ -1,7 +1,12 @@
+const fs = require('fs');
 const http = require('http');
+const path = require('path');
 const WebSocket = require('ws');
 const { resolveNumberEnv, resolveDelayMs, retryAsync } = require('./async_control');
 const { logWarn } = require('./logger');
+
+const DEFAULT_ISOLATED_BROWSER_URL = 'http://localhost:9222/json';
+const DEFAULT_CURRENT_BROWSER_PORTS = [9222, 9229];
 
 function isNoteDetailUrl(url) {
   return /xiaohongshu\.com\/(?:explore|discovery\/item)\//i.test(String(url || ''));
@@ -62,6 +67,7 @@ function buildBaseNote({ detail, noteId, collection, account }) {
     images: Array.isArray(detail.images) ? detail.images : [],
     comments: Array.isArray(detail.comments) ? detail.comments : [],
     commentError: detail.commentError || '',
+    commentWarningCode: detail.commentWarningCode || '',
     commentTotal: detail.commentTotal || 0,
     noteUrl: detail.url || '',
     noteId: noteId || '',
@@ -85,12 +91,30 @@ function buildSingleNote({ detail, noteId, account }) {
   });
 }
 
-function buildCommentCompletionWarning({ totalCount, actualCount } = {}) {
+function normalizeCommentControlText(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isCommentLoadMoreText(text) {
+  const value = normalizeCommentControlText(text);
+  if (!value || value.length > 12) return false;
+  if (/回复/.test(value)) return false;
+  if (/登录/.test(value)) return false;
+  if (/展开全文|阅读全文|收起/.test(value)) return false;
+  return /更多|展开|查看|more|view/i.test(value);
+}
+
+function buildCommentCompletionWarning({ totalCount, actualCount, requiresLogin } = {}) {
   const total = Number(totalCount);
   const actual = Number(actualCount);
   if (!Number.isFinite(total) || total <= 0) return '';
   if (!Number.isFinite(actual) || actual < 0) return '';
   if (actual >= total) return '';
+  if (requiresLogin) {
+    return `评论可能未完整加载：页面显示共 ${total} 条，当前抓取 ${actual} 条。当前网页端提示“登录查看全部评论内容”，剩余评论可能被网页端登录门槛拦截，请先在当前 Chrome 会话中登录后重试。`;
+  }
   return `\u8bc4\u8bba\u53ef\u80fd\u672a\u5b8c\u6574\u52a0\u8f7d\uff1a\u9875\u9762\u663e\u793a\u5171 ${total} \u6761\uff0c\u5f53\u524d\u6293\u53d6 ${actual} \u6761\u3002\u53ef\u80fd\u539f\u56e0\uff1a\u7f51\u9875\u7aef\u9650\u5236\u3001\u8bc4\u8bba\u9700\u5c55\u5f00\u6216\u9700\u8981\u767b\u5f55/\u6253\u5f00\u5e94\u7528\u67e5\u770b\u66f4\u591a\u3002`;
 }
 
@@ -116,11 +140,32 @@ function buildCommentApiFailureMessage({ code, message, status } = {}) {
   return '';
 }
 
+function resolveCommentWarningCode({ totalCount, actualCount, requiresLogin, commentError } = {}) {
+  const total = Number(totalCount);
+  const actual = Number(actualCount);
+  const message = String(commentError || '').trim();
+
+  if (requiresLogin && Number.isFinite(total) && total > 0 && Number.isFinite(actual) && actual < total) {
+    return 'comment_login_required';
+  }
+  if (/登录查看全部评论内容|网页端提示.*登录|先在当前 Chrome 会话中登录后重试/.test(message)) {
+    return 'comment_login_required';
+  }
+  if (Number.isFinite(total) && total > 0 && Number.isFinite(actual) && actual < total) {
+    return 'comment_incomplete';
+  }
+  if (message) {
+    return 'comment_warning';
+  }
+  return '';
+}
+
 async function resolveCommentError({ comments, state, probeApi, onWarning } = {}) {
   const list = Array.isArray(comments) ? comments : [];
   const warning = buildCommentCompletionWarning({
     totalCount: state?.totalCount,
-    actualCount: list.length
+    actualCount: list.length,
+    requiresLogin: state?.requiresLogin
   });
   if (!warning) return '';
 
@@ -172,21 +217,155 @@ function selectDebuggerTab(tabs, { requireXiaohongshu = true } = {}) {
   throw new Error('No debuggable browser page found');
 }
 
-function getTabWsUrl(options = {}) {
+function normalizeBrowserUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^wss?:\/\//i.test(raw)) return raw;
+  const normalized = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
+  if (/\/json(?:\/list)?$/i.test(normalized)) {
+    return normalized;
+  }
+  return `${normalized.replace(/\/+$/, '')}/json`;
+}
+
+function uniqueList(values) {
+  const seen = new Set();
+  const list = [];
+  for (const value of values || []) {
+    const normalized = String(value || '').trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    list.push(normalized);
+  }
+  return list;
+}
+
+function resolveChromeUserDataDirs({ browserChannel, env = process.env } = {}) {
+  const localAppData = String(env.LOCALAPPDATA || '').trim();
+  if (!localAppData) return [];
+
+  const channelMap = {
+    stable: path.join(localAppData, 'Google', 'Chrome', 'User Data'),
+    beta: path.join(localAppData, 'Google', 'Chrome Beta', 'User Data'),
+    canary: path.join(localAppData, 'Google', 'Chrome SxS', 'User Data')
+  };
+
+  if (browserChannel && channelMap[browserChannel]) {
+    return [channelMap[browserChannel]];
+  }
+
+  return uniqueList([
+    channelMap.stable,
+    channelMap.beta,
+    channelMap.canary
+  ]);
+}
+
+function readDevToolsActivePort(filePath, options = {}) {
+  const existsSync = options.existsSync || fs.existsSync;
+  const readFileSync = options.readFileSync || fs.readFileSync;
+
+  if (!filePath || !existsSync(filePath)) {
+    return 0;
+  }
+
+  try {
+    const raw = String(readFileSync(filePath, 'utf-8') || '');
+    const line = raw
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .find((item) => /^\d+$/.test(item));
+    if (!line) return 0;
+    const port = Number(line);
+    return Number.isFinite(port) && port > 0 ? port : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function buildBrowserTargets(options = {}, dependencies = {}) {
+  const explicitBrowserUrl = normalizeBrowserUrl(options.browserUrl);
+  if (explicitBrowserUrl) {
+    return [explicitBrowserUrl];
+  }
+
+  const browserMode = String(options.browserMode || '').trim() || 'isolated';
+  if (browserMode !== 'current-browser') {
+    return [DEFAULT_ISOLATED_BROWSER_URL];
+  }
+
+  const env = dependencies.env || process.env;
+  const existsSync = dependencies.existsSync || fs.existsSync;
+  const readFileSync = dependencies.readFileSync || fs.readFileSync;
+  const fallbackPorts = Array.isArray(dependencies.fallbackPorts) && dependencies.fallbackPorts.length > 0
+    ? dependencies.fallbackPorts
+    : DEFAULT_CURRENT_BROWSER_PORTS;
+
+  const discoveredTargets = [];
+  const userDataDirs = resolveChromeUserDataDirs({
+    browserChannel: options.browserChannel || options.channel,
+    env
+  });
+
+  for (const userDataDir of userDataDirs) {
+    const filePath = path.join(userDataDir, 'DevToolsActivePort');
+    const port = readDevToolsActivePort(filePath, { existsSync, readFileSync });
+    if (port > 0) {
+      discoveredTargets.push(`http://127.0.0.1:${port}/json`);
+    }
+  }
+
+  const fallbackTargets = fallbackPorts.map((port) => `http://127.0.0.1:${port}/json`);
+  return uniqueList([...discoveredTargets, ...fallbackTargets]);
+}
+
+function fetchTabsFromBrowserTarget(targetUrl) {
   return new Promise((resolve, reject) => {
-    http.get('http://localhost:9222/json', (res) => {
+    http.get(targetUrl, (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
-        const tabs = JSON.parse(data);
         try {
-          resolve(selectDebuggerTab(tabs, options));
+          const tabs = JSON.parse(data);
+          resolve(Array.isArray(tabs) ? tabs : []);
         } catch (error) {
           reject(error);
         }
       });
     }).on('error', reject);
   });
+}
+
+async function getTabWsUrl(options = {}) {
+  const resolveTargets = options.resolveTargets || ((params) => buildBrowserTargets(params));
+  const fetchTabs = options.fetchTabs || ((target) => fetchTabsFromBrowserTarget(target));
+  const targets = uniqueList(resolveTargets(options));
+  const errors = [];
+  let sawMissingXhs = false;
+
+  for (const target of targets) {
+    try {
+      const tabs = await fetchTabs(target);
+      try {
+        return selectDebuggerTab(tabs, options);
+      } catch (error) {
+        errors.push(error);
+        if (/No xiaohongshu tab found/i.test(String(error?.message || ''))) {
+          sawMissingXhs = true;
+        }
+      }
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+
+  if (sawMissingXhs) {
+    throw new Error('No xiaohongshu tab found');
+  }
+  if (errors.length > 0) {
+    throw errors[0];
+  }
+  throw new Error('No debuggable browser page found');
 }
 
 let commandId = 1;
@@ -248,7 +427,7 @@ function logCommentDebug(label, state) {
 }
 
 async function connectToChrome(options = {}) {
-  const wsUrl = await getTabWsUrl(options);
+  const wsUrl = String(options.wsEndpoint || '').trim() || await getTabWsUrl(options);
   const ws = new WebSocket(wsUrl);
   await new Promise((resolve) => ws.on('open', resolve));
   return ws;
@@ -362,23 +541,38 @@ async function readCommentExpansionState(ws) {
       const commentsRoot = root.querySelector('.comments-container, .comments-el');
       const commentCount = commentsRoot ? commentsRoot.querySelectorAll('.comment-item').length : 0;
       let buttonCount = 0;
+      let replyButtonCount = 0;
       if (commentsRoot) {
-        const primary = commentsRoot.querySelectorAll('.show-more, [class*="show-more"]');
+        const primary = Array.from(commentsRoot.querySelectorAll('.show-more, [class*="show-more"]'));
         const nodes = Array.from(commentsRoot.querySelectorAll('button, a, div, span'));
         let candidates = 0;
+
+        for (const node of primary) {
+          const textValue = (node.textContent || '').trim();
+          if (/\\u56de\\u590d/.test(textValue)) {
+            replyButtonCount += 1;
+          }
+        }
 
         for (const node of nodes) {
           if (node.closest && node.closest('.comment-item')) continue;
           const textValue = (node.textContent || '').trim();
           if (!textValue || textValue.length > 12) continue;
           if (/\\u56de\\u590d/.test(textValue)) continue;
+          if (/\\u767b\\u5f55/.test(textValue)) continue;
           if (/\\u5c55\\u5f00\\u5168\\u6587|\\u9605\\u8bfb\\u5168\\u6587|\\u6536\\u8d77/.test(textValue)) continue;
           if (/\\u66f4\\u591a|\\u5c55\\u5f00|\\u67e5\\u770b|more|view/i.test(textValue)) {
             candidates += 1;
           }
         }
 
-        buttonCount = Math.max(primary.length, candidates);
+        buttonCount = Math.max(
+          primary.filter((node) => {
+            const textValue = (node.textContent || '').trim();
+            return !/\\u56de\\u590d/.test(textValue) && !/\\u767b\\u5f55/.test(textValue);
+          }).length,
+          candidates
+        );
       }
       const text = commentsRoot ? String(commentsRoot.textContent || '') : '';
       const totalMatch = text.match(/\\u5171\\s*(\\d+)\\s*\\u6761\\u8bc4\\u8bba/);
@@ -391,10 +585,12 @@ async function readCommentExpansionState(ws) {
         hasCommentsRoot: !!commentsRoot,
         commentCount,
         buttonCount,
+        replyButtonCount,
         totalCount: totalMatch ? Number(totalMatch[1]) : 0,
         reachedEnd: text.includes('THE END'),
         lastCommentId,
-                isLoading: /\\u52a0\\u8f7d\\u4e2d/.test(text)
+        isLoading: /\\u52a0\\u8f7d\\u4e2d/.test(text),
+        requiresLogin: /\\u767b\\u5f55\\u67e5\\u770b\\u5168\\u90e8\\u8bc4\\u8bba/.test(text) || !!(commentsRoot && commentsRoot.querySelector('.comments-login, .to-login'))
       });
     })()
   `);
@@ -420,6 +616,7 @@ async function readCommentExpansionStateWithRetry({
         currentState.totalCount > 0 ||
         currentState.commentCount > 0 ||
         currentState.buttonCount > 0 ||
+        currentState.requiresLogin ||
         currentState.reachedEnd ||
         (currentState.hasCommentsRoot && !currentState.isLoading)
       )
@@ -692,11 +889,21 @@ async function clickNextCommentExpander(ws, options = {}) {
           return JSON.stringify({ clicked: false });
         }
 
-        const primary = commentsRoot.querySelector('.show-more')
-          || commentsRoot.querySelector('[class*="show-more"]');
-        if (primary) {
-          primary.scrollIntoView({ block: 'center' });
-          primary.click();
+        const isLoadMoreText = (text) => {
+          const value = String(text || '').replace(/\\s+/g, ' ').trim();
+          if (!value || value.length > 12) return false;
+          if (/\\u56de\\u590d/.test(value)) return false;
+          if (/\\u767b\\u5f55/.test(value)) return false;
+          if (/\\u5c55\\u5f00\\u5168\\u6587|\\u9605\\u8bfb\\u5168\\u6587|\\u6536\\u8d77/.test(value)) return false;
+          return /\\u66f4\\u591a|\\u5c55\\u5f00|\\u67e5\\u770b|more|view/i.test(value);
+        };
+
+        const primary = Array.from(commentsRoot.querySelectorAll('.show-more, [class*="show-more"]'));
+        for (const node of primary) {
+          const text = (node.textContent || '').trim();
+          if (!isLoadMoreText(text)) continue;
+          node.scrollIntoView({ block: 'center' });
+          node.click();
           return JSON.stringify({ clicked: true });
         }
 
@@ -704,14 +911,10 @@ async function clickNextCommentExpander(ws, options = {}) {
         for (const node of nodes) {
           if (node.closest && node.closest('.comment-item')) continue;
           const text = (node.textContent || '').trim();
-          if (!text || text.length > 12) continue;
-          if (/\u56de\u590d/.test(text)) continue;
-          if (/\u5c55\u5f00\u5168\u6587|\u9605\u8bfb\u5168\u6587|\u6536\u8d77/.test(text)) continue;
-          if (/\u66f4\u591a|\u5c55\u5f00|\u67e5\u770b|more|view/i.test(text)) {
-            node.scrollIntoView({ block: 'center' });
-            node.click();
-            return JSON.stringify({ clicked: true });
-          }
+          if (!isLoadMoreText(text)) continue;
+          node.scrollIntoView({ block: 'center' });
+          node.click();
+          return JSON.stringify({ clicked: true });
         }
 
         return JSON.stringify({ clicked: false });
@@ -899,14 +1102,225 @@ async function scrollMoreComments(ws, options = {}) {
   return Boolean(payload.scrolled || payload.scrolledRoot);
 }
 
+async function scrollCommentsToTop(ws, options = {}) {
+  const evaluate = options.evaluate || ((expression) => evaluateJson(ws, expression));
+  const result = await evaluate(`
+    (function() {
+      const pageRoot = document.querySelector('#noteContainer')
+        || document.scrollingElement
+        || document.documentElement
+        || document.body;
+      const root = pageRoot || document;
+      const commentsRoot = root.querySelector('.comments-container, .comments-el');
+      const noteScroller = (commentsRoot && commentsRoot.closest && commentsRoot.closest('.note-scroller')) || document.querySelector('.note-scroller');
+      const target = commentsRoot
+        ? (commentsRoot.querySelector('.comment-list, .comments-list, [class*="comment-list"], [class*="comments-list"]') || commentsRoot)
+        : null;
+
+      function scrollToTop(el) {
+        if (!el) return false;
+        const before = Number(el.scrollTop || 0);
+        try {
+          if (typeof el.scrollTo === 'function') {
+            el.scrollTo({ top: 0, behavior: 'auto' });
+          }
+        } catch (_) {
+          // ignore scrollTo failures
+        }
+        el.scrollTop = 0;
+        return before !== 0;
+      }
+
+      let moved = false;
+      moved = scrollToTop(target) || moved;
+      moved = scrollToTop(noteScroller) || moved;
+      moved = scrollToTop(pageRoot) || moved;
+      try {
+        window.scrollTo(0, 0);
+      } catch (_) {
+        // ignore window scroll failures
+      }
+
+      if (commentsRoot) {
+        try {
+          commentsRoot.scrollIntoView({ block: 'start' });
+        } catch (_) {
+          // ignore scrollIntoView failures
+        }
+      }
+
+      return JSON.stringify({ moved });
+    })()
+  `);
+
+  const payload = typeof result === 'string'
+    ? JSON.parse(result || '{}')
+    : (result || {});
+  return Boolean(payload.moved);
+}
+
+async function scrollCommentsByStep(ws, options = {}) {
+  const evaluate = options.evaluate || ((expression) => evaluateJson(ws, expression));
+  const stepRatio = Number.isFinite(options.stepRatio) ? options.stepRatio : 0.75;
+  const minStep = Number.isFinite(options.minStep) ? options.minStep : 180;
+
+  const result = await evaluate(`
+    (function() {
+      const pageRoot = document.querySelector('#noteContainer')
+        || document.scrollingElement
+        || document.documentElement
+        || document.body;
+      const root = pageRoot || document;
+      const commentsRoot = root.querySelector('.comments-container, .comments-el');
+      const noteScroller = (commentsRoot && commentsRoot.closest && commentsRoot.closest('.note-scroller')) || document.querySelector('.note-scroller');
+      const target = commentsRoot
+        ? (commentsRoot.querySelector('.comment-list, .comments-list, [class*="comment-list"], [class*="comments-list"]') || commentsRoot)
+        : null;
+
+      function pickScrollable(el) {
+        if (!el) return null;
+        const scrollHeight = Number(el.scrollHeight || 0);
+        const clientHeight = Number(el.clientHeight || 0);
+        const maxTop = Math.max(0, scrollHeight - clientHeight);
+        if (maxTop <= 0) return null;
+        return { el, scrollHeight, clientHeight, maxTop };
+      }
+
+      const candidate = pickScrollable(target) || pickScrollable(noteScroller) || pickScrollable(pageRoot);
+      if (!candidate) {
+        try {
+          const beforeY = Number(window.scrollY || window.pageYOffset || 0);
+          window.scrollBy(0, Math.max(${Number(minStep)}, Math.floor(window.innerHeight * ${Number(stepRatio)})));
+          const afterY = Number(window.scrollY || window.pageYOffset || 0);
+          return JSON.stringify({ moved: afterY !== beforeY, top: afterY, maxTop: 0 });
+        } catch (_) {
+          return JSON.stringify({ moved: false, top: 0, maxTop: 0 });
+        }
+      }
+
+      const before = Number(candidate.el.scrollTop || 0);
+      const step = Math.max(${Number(minStep)}, Math.floor(candidate.clientHeight * ${Number(stepRatio)}));
+      const maxTop = Number(candidate.maxTop || 0);
+      const nearBottom = before >= (maxTop - 4);
+
+      if (nearBottom) {
+        // Nudge scroll to trigger lazy-load observers even when we're already at the end.
+        const upTop = Math.max(0, maxTop - Math.max(120, Math.floor(step * 0.5)));
+        candidate.el.scrollTop = upTop;
+        candidate.el.scrollTop = maxTop;
+        try {
+          if (typeof candidate.el.scrollTo === 'function') {
+            candidate.el.scrollTo({ top: maxTop, behavior: 'auto' });
+          }
+        } catch (_) {
+          // ignore scrollTo failures
+        }
+        return JSON.stringify({ moved: true, top: Number(candidate.el.scrollTop || 0), maxTop });
+      }
+
+      const next = Math.min(maxTop, before + step);
+      candidate.el.scrollTop = next;
+      try {
+        if (typeof candidate.el.scrollTo === 'function') {
+          candidate.el.scrollTo({ top: next, behavior: 'auto' });
+        }
+      } catch (_) {
+        // ignore scrollTo failures
+      }
+      return JSON.stringify({ moved: next !== before, top: next, maxTop });
+    })()
+  `);
+
+  const payload = typeof result === 'string'
+    ? JSON.parse(result || '{}')
+    : (result || {});
+  return Boolean(payload.moved);
+}
+
+async function sweepVirtualizedComments(ws, options = {}) {
+  const readSnapshot = typeof options.readSnapshot === 'function'
+    ? options.readSnapshot
+    : (() => readVisibleComments(ws, options));
+  const onSnapshot = typeof options.onSnapshot === 'function'
+    ? options.onSnapshot
+    : (() => {});
+  const expandReplies = typeof options.expandReplies === 'function'
+    ? options.expandReplies
+    : null;
+  const advance = typeof options.advance === 'function'
+    ? options.advance
+    : (() => scrollCommentsByStep(ws, options));
+  const scrollToTop = typeof options.scrollToTop === 'function'
+    ? options.scrollToTop
+    : (() => scrollCommentsToTop(ws, options));
+  const wait = options.wait || sleep;
+  const settleMs = Number.isFinite(options.settleMs)
+    ? Math.max(0, options.settleMs)
+    : resolveNumberEnv(process.env.XHS_COMMENT_SWEEP_SETTLE_MS, 180);
+  const maxSteps = Number.isFinite(options.maxSteps)
+    ? Math.max(0, options.maxSteps)
+    : resolveNumberEnv(process.env.XHS_COMMENT_SWEEP_STEPS, 120);
+
+  try {
+    await scrollToTop();
+  } catch (_) {
+    // ignore scroll to top failures
+  }
+
+  try {
+    onSnapshot(await readSnapshot());
+  } catch (_) {
+    // ignore snapshot failures
+  }
+
+  for (let step = 0; step < maxSteps; step += 1) {
+    if (expandReplies) {
+      try {
+        await expandReplies({ step });
+      } catch (_) {
+        // ignore reply expansion failures
+      }
+    }
+
+    try {
+      onSnapshot(await readSnapshot());
+    } catch (_) {
+      // ignore snapshot failures
+    }
+
+    let moved = false;
+    try {
+      moved = await advance({ step });
+    } catch (_) {
+      moved = false;
+    }
+    if (!moved) break;
+
+    if (settleMs > 0) {
+      await wait(settleMs);
+    }
+
+    try {
+      onSnapshot(await readSnapshot());
+    } catch (_) {
+      // ignore snapshot failures
+    }
+  }
+}
+
 function shouldLoadMoreComments(state) {
   if (!state) return false;
+  if (state.requiresLogin) return false;
   if (state.buttonCount > 0) return true;
   if (state.reachedEnd) return false;
   if (state.totalCount > 0) {
     return state.commentCount < state.totalCount;
   }
   return false;
+}
+
+function shouldSkipCommentSweep(state) {
+  return Boolean(state?.requiresLogin);
 }
 
 function shouldPrimeComments(state) {
@@ -968,20 +1382,35 @@ async function ensureCommentsReady(ws, maxRounds = 4, options = {}) {
   for (let round = 0; round < maxRounds; round += 1) {
     if (!shouldPrimeComments(currentState)) break;
 
-    const advanced = await scrollMore();
-    if (!advanced) break;
+    let advanced = false;
+    try {
+      advanced = await scrollMore();
+    } catch (_) {
+      advanced = false;
+    }
+
+    const passiveWait = !advanced && Boolean(currentState?.isLoading);
+    if (!advanced && !passiveWait) break;
 
     const result = await waitForStateChange({
       previousState: currentState,
       readState,
       wait: options.wait || sleep,
-      attempts: options.attempts || 8,
-      intervalMs: options.intervalMs || 300
+      attempts: passiveWait
+        ? (options.loadingAttempts || Math.max(options.attempts || 8, 10))
+        : (options.attempts || 8),
+      intervalMs: passiveWait
+        ? (options.loadingIntervalMs || Math.max(options.intervalMs || 300, 400))
+        : (options.intervalMs || 300)
     });
 
     currentState = result.state;
     logCommentDebug(`ready:round:${round + 1}:${result.changed ? 'changed' : 'same'}`, currentState);
-    if (!result.changed) break;
+    if (!result.changed) {
+      if (!currentState?.isLoading) break;
+      await throttle();
+      continue;
+    }
     await throttle();
   }
 
@@ -1144,17 +1573,22 @@ async function extractNoteCommentsLegacy(ws) {
 
 async function extractNoteComments(ws) {
   const accumulator = createCommentAccumulator();
-  const addSnapshot = async () => {
+  const addSnapshot = async (label = '') => {
     const snapshot = await readVisibleComments(ws);
-    accumulator.addSnapshot(snapshot);
+    const before = accumulator.size;
+    const result = accumulator.addSnapshot(snapshot);
+    if (DEBUG_COMMENTS) {
+      const tag = label ? `:${label}` : '';
+      console.log(`[XHS][comments] snapshot${tag}: len=${Array.isArray(snapshot) ? snapshot.length : 0} size=${accumulator.size} changed=${Boolean(result?.changed)} (+${accumulator.size - before})`);
+    }
   };
 
-  await addSnapshot();
+  await addSnapshot('init');
 
   const waitForStateChange = async (params) => {
     const result = await waitForCommentStateChange(params);
     try {
-      await addSnapshot();
+      await addSnapshot('state');
     } catch (_) {
       // ignore snapshot errors so expansion can continue
     }
@@ -1168,8 +1602,36 @@ async function extractNoteComments(ws) {
     return true;
   };
 
-  await expandAllComments(ws, undefined, { waitForStateChange, shouldLoadMore });
-  await addSnapshot();
+  await expandAllComments(ws, undefined, {
+    waitForStateChange,
+    shouldLoadMore,
+    expandReplies: false,
+    scrollMore: () => scrollCommentsByStep(ws)
+  });
+
+  const postExpandState = await readCommentExpansionStateWithRetry({
+    readState: () => readCommentExpansionState(ws),
+    wait: sleep,
+    attempts: 3,
+    intervalMs: 250
+  });
+  if (shouldSkipCommentSweep(postExpandState)) {
+    await addSnapshot('login-gated');
+    return accumulator.toArray();
+  }
+
+  await sweepVirtualizedComments(ws, {
+    onSnapshot: (list) => accumulator.addSnapshot(list),
+    readSnapshot: () => readVisibleComments(ws),
+    expandReplies: async () => {
+      await expandAllReplies(ws, undefined, {
+        waitForStateChange,
+        throttleMs: Math.min(COMMENT_THROTTLE_MS, 800),
+        throttleJitterMs: Math.min(COMMENT_THROTTLE_JITTER_MS, 400)
+      });
+    }
+  });
+  await addSnapshot('final');
 
   return accumulator.toArray();
 }
@@ -1236,6 +1698,7 @@ async function extractNoteDetail(ws) {
       }
     );
     result.commentError = '';
+    result.commentWarningCode = '';
     try {
       const state = await readCommentExpansionStateWithRetry({
         readState: () => readCommentExpansionState(ws),
@@ -1244,7 +1707,9 @@ async function extractNoteDetail(ws) {
         intervalMs: 500
       });
       result.commentTotal = Number(state?.totalCount || 0);
-      const shouldProbeApi = process.env.XHS_COMMENT_PROBE_API === '1';
+      // API probe is used only when comments appear incomplete. Default it on so exports
+      // surface actionable hints (login expired / account abnormal) without requiring extra flags.
+      const shouldProbeApi = process.env.XHS_COMMENT_PROBE_API !== '0';
       const warning = await resolveCommentError({
         comments: result.comments,
         state,
@@ -1254,16 +1719,20 @@ async function extractNoteDetail(ws) {
               (async function() {
                 const state = window.__INITIAL_STATE__ || {};
                 const noteMap = state.note && state.note.noteDetailMap ? state.note.noteDetailMap : {};
-                const noteId = Object.keys(noteMap).find((key) => noteMap[key] && noteMap[key].note) || '';
-                const commentState = noteId && noteMap[noteId] ? noteMap[noteId].comments : null;
+                const pathMatch = (location.pathname || '').match(/\\/(?:explore|discovery\\/item)\\/([A-Za-z0-9]+)/i);
+                const noteIdFromUrl = pathMatch ? pathMatch[1] : '';
+                const noteKey = noteIdFromUrl && noteMap[noteIdFromUrl]
+                  ? noteIdFromUrl
+                  : (Object.keys(noteMap).find((key) => key && noteMap[key] && noteMap[key].note) || noteIdFromUrl);
+                const commentState = noteKey && noteMap[noteKey] ? noteMap[noteKey].comments : null;
                 const cursor = commentState && commentState.cursor ? commentState.cursor : '';
                 const xsecToken = new URL(location.href).searchParams.get('xsec_token') || '';
-                if (!noteId) {
+                if (!noteIdFromUrl) {
                   return JSON.stringify({ status: 0, code: 0, message: '', success: true });
                 }
                 const api = 'https://edith.xiaohongshu.com/api/sns/web/v2/comment/page';
                 const params = new URLSearchParams({
-                  note_id: noteId,
+                  note_id: noteIdFromUrl,
                   cursor,
                   top_comment_id: '',
                   image_formats: 'jpg,webp',
@@ -1297,6 +1766,12 @@ async function extractNoteDetail(ws) {
       });
       if (warning) {
         result.commentError = warning;
+        result.commentWarningCode = resolveCommentWarningCode({
+          totalCount: state?.totalCount,
+          actualCount: result.comments.length,
+          requiresLogin: state?.requiresLogin,
+          commentError: warning
+        });
       }
     } catch (_) {
       // ignore completion warning errors
@@ -1304,6 +1779,11 @@ async function extractNoteDetail(ws) {
   } catch (error) {
     result.comments = [];
     result.commentError = error && error.message ? error.message : '\u8bc4\u8bba\u533a\u91c7\u96c6\u5931\u8d25';
+    result.commentWarningCode = resolveCommentWarningCode({
+      totalCount: result.commentTotal || 0,
+      actualCount: 0,
+      commentError: result.commentError
+    });
   }
 
   return result;
@@ -1316,6 +1796,7 @@ function extractNoteIdFromUrl(url) {
 
 module.exports = {
   buildBoardNote,
+  buildBrowserTargets,
   buildSingleNote,
   buildCommentApiFailureMessage,
   buildCommentCompletionWarning,
@@ -1330,7 +1811,9 @@ module.exports = {
   extractNoteComments,
   extractNoteDetail,
   extractNoteIdFromUrl,
+  getTabWsUrl,
   getCurrentPageUrl,
+  isCommentLoadMoreText,
   isNoteDetailUrl,
   navigateToUrl,
   readCommentExpansionState,
@@ -1338,9 +1821,12 @@ module.exports = {
   readVisibleComments,
   readNoteDetailReadyState,
   resolveCommentError,
+  resolveCommentWarningCode,
   selectDebuggerTab,
   send,
+  shouldSkipCommentSweep,
   sleep,
+  sweepVirtualizedComments,
   scrollMoreComments,
   waitForNoteDetailReady,
   waitForCommentStateChange

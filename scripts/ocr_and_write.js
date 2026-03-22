@@ -169,8 +169,10 @@ async function ocrImages(images, imagesDir, noteId) {
   const limit = MAX_IMAGES_PER_NOTE > 0 ? MAX_IMAGES_PER_NOTE : contentImages.length;
   const limitedImages = contentImages.slice(0, limit);
 
-  const worker = await createWorker('chi_sim+eng', 1, {
-    langPath: TESSDATA_PATH
+  const worker = await createWorker('eng+chi_sim', 1, {
+    langPath: TESSDATA_PATH,
+    gzip: false,
+    cacheMethod: 'none'
   });
   const results = [];
 

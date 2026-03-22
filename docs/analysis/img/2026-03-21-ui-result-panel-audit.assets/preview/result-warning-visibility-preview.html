@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Warning Visibility Preview</title>
+  <link rel="stylesheet" href="../../../../../ui/styles.css">
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <div class="topbar-title">
+        <p class="eyebrow">LOCAL XHS WORKBENCH</p>
+        <h1>结果区 Warning 可见性预览</h1>
+        <p class="subtitle">使用真实前端脚本 + 本地 mock 报告，展示“有提示”筛选和分组徽标后的结果区表现。</p>
+      </div>
+      <div class="topbar-actions">
+        <button id="inbox-sync" class="button secondary" type="button">同步最新</button>
+        <button id="inbox-sync-all-top" class="button ghost" type="button">同步全部</button>
+        <button id="open-settings" class="button ghost" type="button">设置</button>
+      </div>
+    </header>
+
+    <section id="summary-row" class="summary-row"></section>
+
+    <section class="layout">
+      <div class="stack">
+        <article class="card">
+          <div class="card-head">
+            <p class="card-kicker">Preview</p>
+            <h2>模拟任务入口</h2>
+            <p>页面载入后会自动提交一组 mock 结果，并切换到“有提示”筛选，便于稳定截图。</p>
+          </div>
+          <form id="links-form" class="card-body">
+            <label class="field">
+              <span>分享文本或多行链接</span>
+              <textarea id="links-text" name="text" rows="10">https://mp.weixin.qq.com/s/warning-demo
+https://www.zhihu.com/p/normal-demo
+https://blog.csdn.net/tool-demo</textarea>
+            </label>
+            <div class="button-row">
+              <button id="links-submit" class="button" type="submit">开始保存链接</button>
+              <button id="links-clear" class="button ghost" type="button">清空文本</button>
+            </div>
+          </form>
+        </article>
+
+        <article class="card accent">
+          <div class="card-head">
+            <p class="card-kicker">Preview</p>
+            <h2>说明</h2>
+            <p>本页不会调用真实接口，只用于验证结果区在 warning 场景下的筛选和层级是否仍然清晰。</p>
+          </div>
+          <div class="card-body">
+            <div class="inline-hints">
+              <span>有提示</span>
+              <span>分组徽标</span>
+              <span>多来源</span>
+            </div>
+            <div class="button-row">
+              <button id="collection-submit" class="button secondary" type="button">开始导出收藏</button>
+              <button id="inbox-sync-latest" class="button ghost" type="button">同步最新</button>
+              <button id="inbox-sync-all" class="button ghost" type="button">同步全部</button>
+              <button id="inbox-save" class="button ghost" type="button">收件箱解析保存</button>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <section class="result-card">
+        <section id="error-banner" class="error-banner" hidden>
+          <div class="error-banner-head">
+            <strong id="error-title">失败</strong>
+            <button id="error-dismiss" class="icon-button" type="button" aria-label="关闭提示">×</button>
+          </div>
+          <p id="error-message" class="error-message"></p>
+          <ul id="error-hints" class="error-hints"></ul>
+        </section>
+        <div class="result-head">
+          <div>
+            <h2>执行结果</h2>
+            <p id="status-text">等待任务开始</p>
+          </div>
+          <div class="result-actions">
+            <button id="retry-failed-results" class="button ghost" type="button" disabled>重试失败项</button>
+            <button id="open-output-folder" class="button ghost" type="button" disabled>打开输出文件夹</button>
+          </div>
+        </div>
+        <div id="progress-list" class="progress-list" hidden></div>
+        <div id="result-summary" class="result-summary">
+          <section class="result-empty-state" aria-label="结果区空状态">
+            <div class="result-empty-copy">
+              <strong>还没有执行任务</strong>
+              <p>结果区会显示进度、分类、警告与失败重试。预览页会自动触发一次 mock 任务。</p>
+            </div>
+          </section>
+        </div>
+        <details id="raw-report" class="raw-report" hidden>
+          <summary>原始报告（JSON）</summary>
+          <pre id="result-output" class="result-output">暂无输出</pre>
+        </details>
+      </section>
+    </section>
+  </main>
+
+  <div id="settings-overlay" class="modal-overlay" hidden></div>
+  <div id="settings-modal" class="modal" hidden>
+    <div class="modal-head">
+      <div>
+        <h2>保存设置</h2>
+        <p>预览页不保存真实配置。</p>
+      </div>
+      <button id="close-settings" class="icon-button" type="button" aria-label="关闭设置">×</button>
+    </div>
+    <form id="config-form" class="modal-body">
+      <div class="panel-section">
+        <h3>路径设置</h3>
+        <label class="field">
+          <span>链接保存输出目录</span>
+          <input id="path-links-output" type="text" value="output/单条笔记保存">
+        </label>
+        <label class="field">
+          <span>链接保存图片目录</span>
+          <input id="path-links-images" type="text" value="output/_images">
+        </label>
+        <label class="field">
+          <span>收藏导出输出目录</span>
+          <input id="path-collection-output" type="text" value="output">
+        </label>
+        <label class="field">
+          <span>收藏原始数据路径</span>
+          <input id="path-collection-raw" type="text" value="data/raw_notes.json">
+        </label>
+      </div>
+
+      <div class="panel-section">
+        <h3>浏览器接入</h3>
+        <label class="field">
+          <span>浏览器模式</span>
+          <select id="browser-mode">
+            <option value="isolated">隔离调试浏览器</option>
+            <option value="current-browser">复用当前浏览器</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>当前浏览器通道</span>
+          <select id="browser-channel">
+            <option value="stable">stable</option>
+            <option value="beta">beta</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>显式浏览器地址（可选）</span>
+          <input id="browser-url" type="text" value="">
+        </label>
+      </div>
+
+      <div class="panel-section">
+        <h3>命名规则</h3>
+        <label class="field">
+          <span>冲突处理策略</span>
+          <select id="naming-strategy">
+            <option value="content-aware">content-aware</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>标题最长字符数</span>
+          <input id="naming-max-length" type="number" value="80">
+        </label>
+      </div>
+
+      <div class="panel-section">
+        <h3>运行参数</h3>
+        <div class="toggle-row">
+          <label class="toggle">
+            <input id="runtime-auto-classify" type="checkbox" checked>
+            <span>保存链接时自动分类</span>
+          </label>
+          <label class="toggle">
+            <input id="runtime-ai" type="checkbox" checked>
+            <span>AI 总结与标签</span>
+          </label>
+          <label class="toggle">
+            <input id="runtime-vision" type="checkbox" checked>
+            <span>Vision OCR</span>
+          </label>
+          <label class="toggle">
+            <input id="runtime-ocr-fallback" type="checkbox" checked>
+            <span>OCR 兜底</span>
+          </label>
+        </div>
+        <label class="field">
+          <span>OpenRouter 超时 (ms)</span>
+          <input id="runtime-openrouter-timeout" type="number" value="30000">
+        </label>
+        <label class="field">
+          <span>Vision OCR 超时 (ms)</span>
+          <input id="runtime-vision-timeout" type="number" value="60000">
+        </label>
+        <label class="field">
+          <span>每条笔记最多 OCR 图片数</span>
+          <input id="runtime-max-images" type="number" value="12">
+        </label>
+      </div>
+
+      <div class="panel-section">
+        <h3>外部入口设置</h3>
+        <label class="toggle">
+          <input id="pushbullet-enabled" type="checkbox">
+          <span>启用 Pushbullet</span>
+        </label>
+        <label class="field">
+          <span>Pushbullet Access Token</span>
+          <input id="pushbullet-token" type="password" value="">
+        </label>
+        <label class="field">
+          <span>收件箱文件路径</span>
+          <input id="inbox-path" type="text" value="data/inbox_links.jsonl">
+        </label>
+      </div>
+
+      <div class="panel-section">
+        <h3>收件箱分类规则</h3>
+        <label class="field">
+          <span>分类规则 (JSON)</span>
+          <textarea id="inbox-categories" rows="5">{}</textarea>
+        </label>
+      </div>
+
+      <div class="panel-section">
+        <h3>界面设置</h3>
+        <label class="toggle">
+          <input id="ui-show-raw" type="checkbox" checked>
+          <span>显示原始 JSON 报告</span>
+        </label>
+      </div>
+
+      <div class="button-row">
+        <button id="config-save" class="button" type="submit">保存设置</button>
+        <button id="config-reload" class="button ghost" type="button">重新加载</button>
+      </div>
+      <p id="config-status" class="status-text">预览配置</p>
+    </form>
+  </div>
+
+  <script>
+    const previewReport = {
+      total: 4,
+      successCount: 3,
+      failureCount: 1,
+      results: [
+        {
+          status: 'success',
+          filepath: 'G:/output/AI/Chrome 146 一个开关，让 AI 接管当前浏览器.md',
+          platform: 'wechat',
+          sourceType: 'wechat_article',
+          warnings: [
+            {
+              step: 'comments',
+              code: 'comment_incomplete',
+              message: '评论可能未完整加载：网页端限制或账号状态异常。'
+            }
+          ]
+        },
+        {
+          status: 'success',
+          filepath: 'G:/output/AI/公众号文章自动打标签.md',
+          platform: 'wechat',
+          sourceType: 'wechat_article',
+          warnings: []
+        },
+        {
+          status: 'success',
+          filepath: 'G:/output/工具/CSDN 收藏兼容方案.md',
+          platform: 'csdn',
+          sourceType: 'csdn_article',
+          warnings: []
+        },
+        {
+          status: 'failed',
+          canonicalUrl: 'https://www.xiaohongshu.com/discovery/item/failure-demo',
+          error: '当前笔记暂时无法浏览'
+        }
+      ],
+      warnings: [
+        {
+          step: 'comments',
+          code: 'comment_incomplete',
+          message: '评论可能未完整加载：网页端限制或账号状态异常。'
+        }
+      ]
+    };
+
+    function createJsonResponse(payload) {
+      return {
+        ok: true,
+        json: async () => payload,
+        headers: { get: () => 'application/json' }
+      };
+    }
+
+    window.fetch = async (url, init = {}) => {
+      const target = String(url || '');
+      const method = init.method || 'POST';
+      if (target.includes('/api/ui-config') && method === 'GET') {
+        return createJsonResponse({
+          config: {
+            paths: {},
+            browser: {},
+            naming: {},
+            runtime: {
+              autoClassifyLinksEnabled: true,
+              aiSummaryEnabled: true,
+              visionOcrEnabled: true,
+              ocrFallbackEnabled: true
+            },
+            pushbullet: {},
+            inbox: {},
+            ui: { showRawReport: true }
+          }
+        });
+      }
+      if (target.includes('/api/save-links-stream')) {
+        return createJsonResponse({ report: previewReport });
+      }
+      return createJsonResponse({});
+    };
+
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        const form = document.getElementById('links-form');
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        setTimeout(() => {
+          const warningsFilter = document.querySelector('[data-filter-key="warnings"]');
+          if (warningsFilter) {
+            warningsFilter.click();
+          }
+        }, 120);
+      }, 80);
+    });
+  </script>
+  <script src="../../../../../ui/ui_helpers.js"></script>
+  <script src="../../../../../ui/app.js"></script>
+</body>
+</html>

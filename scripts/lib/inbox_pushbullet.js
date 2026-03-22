@@ -63,7 +63,6 @@ async function fetchPushesWithAuth({ fetchImpl, url, accessToken }) {
     return primary;
   }
 
-  // Compatibility: Some environments may require Basic auth instead of Access-Token header.
   return fetchImpl(url, {
     headers: {
       Authorization: buildBasicAuth(accessToken)
@@ -83,23 +82,29 @@ function createPushbulletProvider({
   }
 
   const resolvedLimit = resolveInteger(limit, DEFAULT_PAGE_LIMIT) || DEFAULT_PAGE_LIMIT;
-  const resolvedMaxPages = resolveInteger(maxPages, resolveInteger(process.env.PUSHBULLET_MAX_PAGES, DEFAULT_MAX_PAGES));
+  const resolvedMaxPages = resolveInteger(
+    maxPages,
+    resolveInteger(process.env.PUSHBULLET_MAX_PAGES, DEFAULT_MAX_PAGES)
+  );
   const safeMaxPages = resolvedMaxPages > 0 ? resolvedMaxPages : DEFAULT_MAX_PAGES;
 
   return {
-    async pull({ since = 0 } = {}) {
+    async pull({ since = 0, maxItems } = {}) {
       const items = [];
       const normalizedSince = Number(since) || 0;
+      const normalizedMaxItems = resolveInteger(maxItems, 0);
+      const safeMaxItems = normalizedMaxItems > 0 ? normalizedMaxItems : 0;
       let nextModified = normalizedSince;
       let cursor = '';
       let pagesFetched = 0;
       let truncated = false;
       let warning = '';
+      let cappedByItems = false;
 
       while (true) {
         if (pagesFetched >= safeMaxPages) {
           truncated = true;
-          warning = `Pushbullet 拉取分页达到上限（maxPages=${safeMaxPages}），结果已截断。可提高环境变量 PUSHBULLET_MAX_PAGES 后重试“同步全部”。`;
+          warning = `Pushbullet pull reached maxPages=${safeMaxPages}.`;
           break;
         }
 
@@ -125,10 +130,21 @@ function createPushbulletProvider({
             nextModified = Number(push.modified || 0);
           }
           const item = buildItemFromPush(push);
-          if (item) items.push(item);
+          if (!item) continue;
+          items.push(item);
+          if (safeMaxItems > 0 && items.length >= safeMaxItems) {
+            cappedByItems = true;
+            truncated = true;
+            warning = `Pushbullet pull capped at maxItems=${safeMaxItems}.`;
+            break;
+          }
         }
 
         cursor = typeof payload?.cursor === 'string' ? payload.cursor : '';
+        if (cappedByItems) {
+          items.length = safeMaxItems;
+          break;
+        }
         if (!cursor || pushes.length === 0) break;
       }
 

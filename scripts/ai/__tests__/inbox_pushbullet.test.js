@@ -74,5 +74,32 @@ test('pushbullet provider reports truncated when max pages reached', async () =>
 
   assert.equal(result.items.length, 1);
   assert.equal(result.truncated, true);
-  assert.match(result.warning, /上限|maxPages/i);
+  assert.match(result.warning, /maxPages/i);
+});
+
+test('pushbullet provider can stop after maxItems when pulling recent messages', async () => {
+  let callCount = 0;
+  const mockFetch = async () => {
+    callCount += 1;
+    return {
+      ok: true,
+      json: async () => ({
+        pushes: [
+          { type: 'link', url: 'https://example.com/1', modified: 30 },
+          { type: 'link', url: 'https://example.com/2', modified: 20 },
+          { type: 'link', url: 'https://example.com/3', modified: 10 }
+        ],
+        cursor: 'c1'
+      })
+    };
+  };
+
+  const provider = createPushbulletProvider({ accessToken: 'token', fetchImpl: mockFetch });
+  const result = await provider.pull({ since: 0, maxItems: 2 });
+
+  assert.equal(callCount, 1);
+  assert.equal(result.items.length, 2);
+  assert.equal(result.items[0].url, 'https://example.com/1');
+  assert.equal(result.items[1].url, 'https://example.com/2');
+  assert.equal(result.truncated, true);
 });

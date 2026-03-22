@@ -101,6 +101,29 @@ test('generateMarkdown prefers sourceUrl when provided', () => {
   assert.match(markdown, /\*来源：小红书 \[@作者\]\(http:\/\/xhslink\.com\/o\/short1\)\*/);
 });
 
+test('generateMarkdown uses platform-aware source footer for article pages', () => {
+  const markdown = generateMarkdown({
+    note: {
+      title: '文章标题',
+      author: '圆圆大侠',
+      platform: 'wechat',
+      sourceType: 'wechat_article',
+      collection: '微信公众号文章',
+      date: '2026-03-21',
+      tags: [],
+      images: [],
+      sourceUrl: 'https://mp.weixin.qq.com/s/abc123'
+    },
+    content: '正文内容',
+    ocrTexts: [],
+    summary: '摘要',
+    tags: ['标签1', '标签2', '标签3']
+  });
+
+  assert.match(markdown, /source: "https:\/\/mp\.weixin\.qq\.com\/s\/abc123"/);
+  assert.match(markdown, /\*来源：微信公众号 \[圆圆大侠\]\(https:\/\/mp\.weixin\.qq\.com\/s\/abc123\)\*/);
+});
+
 test('generateMarkdown includes comment total and collected', () => {
   const markdown = generateMarkdown({
     note: {
@@ -148,6 +171,40 @@ test('generateMarkdown renders comment collection failure without blocking note 
   assert.match(markdown, /正文内容/);
   assert.match(markdown, /## 评论区总结/);
   assert.match(markdown, /评论区采集失败，本次仅导出正文与图片内容/);
+});
+
+test('processSingleNoteExport emits comment_login_required warning for login-gated comments', async () => {
+  const tempRoot = createTempDir('xhs-process-export-');
+  const imagesRoot = path.join(tempRoot, '_images');
+  const configPath = path.join(tempRoot, 'openrouter.json');
+  const visionConfigPath = path.join(tempRoot, 'vision-ocr.json');
+  fs.writeFileSync(configPath, JSON.stringify({ enabled: false }), 'utf-8');
+  fs.writeFileSync(visionConfigPath, JSON.stringify({ enabled: false }), 'utf-8');
+
+  const result = await processSingleNoteExport({
+    outputRoot: tempRoot,
+    imagesRoot,
+    configPath,
+    visionConfigPath,
+    note: {
+      title: '评论登录门槛测试',
+      noteId: 'login123',
+      author: '作者',
+      collection: '单条笔记保存',
+      date: '2026-03-19',
+      tags: [],
+      images: [],
+      content: '正文内容',
+      comments: [{ commentId: 'c1', author: '评论者', content: '已加载评论' }],
+      commentTotal: 40,
+      commentError: '评论可能未完整加载：页面显示共 40 条，当前抓取 1 条。当前网页端提示“登录查看全部评论内容”，剩余评论可能被网页端登录门槛拦截，请先在当前 Chrome 会话中登录后重试。',
+      commentWarningCode: 'comment_login_required'
+    }
+  });
+
+  assert.equal(result.warnings.length, 1);
+  assert.equal(result.warnings[0].code, 'comment_login_required');
+  assert.match(result.warnings[0].message, /登录/);
 });
 
 test('renderUsefulComments returns fallback when no useful comments are kept', () => {
@@ -461,6 +518,76 @@ test('processSingleNoteExport returns a stable result shape when comments are ab
   assert.equal(Array.isArray(result.usefulComments), true);
   assert.equal(typeof result.commentSummary, 'string');
   assert.equal(Array.isArray(result.warnings), true);
+});
+
+test('processSingleNoteExport can resolve final collection after summary and tags are ready', async () => {
+  const tempRoot = createTempDir('xhs-process-export-');
+  const imagesRoot = path.join(tempRoot, '_images');
+  const configPath = path.join(tempRoot, 'openrouter.json');
+  const visionConfigPath = path.join(tempRoot, 'vision-ocr.json');
+  fs.writeFileSync(configPath, JSON.stringify({ enabled: false }), 'utf-8');
+  fs.writeFileSync(visionConfigPath, JSON.stringify({ enabled: false }), 'utf-8');
+
+  const result = await processSingleNoteExport({
+    outputRoot: tempRoot,
+    imagesRoot,
+    configPath,
+    visionConfigPath,
+    note: {
+      title: 'Chrome DevTools MCP 让 AI 接管当前浏览器',
+      noteId: 'classify123',
+      author: '作者',
+      collection: '微信公众号文章',
+      date: '2026-03-21',
+      tags: ['AI', '浏览器自动化'],
+      images: [],
+      content: '正文内容',
+      comments: []
+    },
+    collectionResolver: ({ note, summary, tags, content }) => {
+      assert.equal(note.collection, '微信公众号文章');
+      assert.equal(typeof summary, 'string');
+      assert.equal(Array.isArray(tags), true);
+      assert.match(content, /正文内容/);
+      return tags.includes('AI') ? 'AI' : '';
+    }
+  });
+
+  assert.match(result.filepath, /[\\/]AI[\\/]/);
+  const markdown = fs.readFileSync(result.filepath, 'utf-8');
+  assert.match(markdown, /collection: "AI"/);
+});
+
+test('processSingleNoteExport keeps original collection when export-time resolver returns empty', async () => {
+  const tempRoot = createTempDir('xhs-process-export-');
+  const imagesRoot = path.join(tempRoot, '_images');
+  const configPath = path.join(tempRoot, 'openrouter.json');
+  const visionConfigPath = path.join(tempRoot, 'vision-ocr.json');
+  fs.writeFileSync(configPath, JSON.stringify({ enabled: false }), 'utf-8');
+  fs.writeFileSync(visionConfigPath, JSON.stringify({ enabled: false }), 'utf-8');
+
+  const result = await processSingleNoteExport({
+    outputRoot: tempRoot,
+    imagesRoot,
+    configPath,
+    visionConfigPath,
+    note: {
+      title: '未命中分类',
+      noteId: 'classify124',
+      author: '作者',
+      collection: '知乎文章',
+      date: '2026-03-21',
+      tags: ['标签1'],
+      images: [],
+      content: '正文内容',
+      comments: []
+    },
+    collectionResolver: () => ''
+  });
+
+  assert.match(result.filepath, /[\\/]知乎文章[\\/]/);
+  const markdown = fs.readFileSync(result.filepath, 'utf-8');
+  assert.match(markdown, /collection: "知乎文章"/);
 });
 
 test('getVisionOcrEndpoint uses responses api for openai-compatible provider', () => {

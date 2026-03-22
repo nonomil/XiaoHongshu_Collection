@@ -8,11 +8,19 @@ const DEFAULT_UI_CONFIG = {
     collectionOutputRoot: '',
     collectionRawPath: ''
   },
+  browser: {
+    mode: 'isolated',
+    browserUrl: '',
+    wsEndpoint: '',
+    channel: 'stable',
+    headless: false
+  },
   naming: {
     conflictStrategy: 'overwrite',
     maxTitleLength: 80
   },
   runtime: {
+    autoClassifyLinksEnabled: true,
     aiSummaryEnabled: true,
     visionOcrEnabled: true,
     ocrFallbackEnabled: true,

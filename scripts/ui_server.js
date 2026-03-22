@@ -11,12 +11,15 @@ const {
   saveMode
 } = require('./save_note');
 const { runTaskPipeline } = require('./lib/pipeline');
+const { DEFAULT_LAUNCH_URL, launchProjectChromeSession } = require('./lib/browser_session');
 const { resolveProjectPaths } = require('./lib/config');
 const { saveInboxUrls } = require('./lib/inbox_save');
 const { loadUiConfig, mergeUiConfig, saveUiConfig } = require('./lib/ui_config');
 const { loadPushbulletConfig, savePushbulletConfig } = require('./lib/pushbullet_config');
 const { syncInbox } = require('./lib/inbox_sync');
 const { logError, logInfo } = require('./lib/logger');
+const { openOutputFolder: defaultOpenOutputFolder } = require('./lib/open_output');
+const { exportLinksList: defaultExportLinksList } = require('./lib/export_links_list');
 const { buildTaskResult, buildTaskSummary } = require('./lib/report');
 const {
   assertValidTask,
@@ -215,7 +218,11 @@ async function runSaveLinksWithProgress({ text, uiConfig, onEvent }) {
   const task = buildNoteSaveTask({ input: text, source: 'ui' });
   assertValidTask(task);
 
-  const modes = await resolveRunModes({ mode: 'input', input: text });
+  const modes = await resolveRunModes({
+    mode: 'input',
+    input: text,
+    browser: uiConfig.browser
+  });
   const targets = modes.map((mode, index) => ({
     index,
     noteId: mode.noteId || '',
@@ -250,7 +257,8 @@ async function runSaveLinksWithProgress({ text, uiConfig, onEvent }) {
         imagesRoot: uiConfig.paths.saveLinksImagesRoot || undefined,
         conflictStrategy: uiConfig.naming.conflictStrategy,
         maxTitleLength: uiConfig.naming.maxTitleLength,
-        uiRuntime: uiConfig.runtime
+        uiRuntime: uiConfig.runtime,
+        classificationCategories: uiConfig.inbox?.categories
       });
       const item = buildSuccessfulSaveSummaryItem(baseResult, saved);
       results.push(item);
@@ -308,19 +316,31 @@ function createUiServer({
   runCollectionExport: runCollection = runCollectionExport,
   runInboxSync: runInbox = syncInbox,
   runInboxSave,
+  openOutputFolder = defaultOpenOutputFolder,
+  openLoginBrowser = async ({ browser, url }) => launchProjectChromeSession({
+    url: url || DEFAULT_LAUNCH_URL,
+    browser: {
+      channel: browser?.channel || '',
+      headless: false
+    }
+  }),
+  exportLinksList = defaultExportLinksList,
   uiDir = UI_DIR,
   uiConfigPath = DEFAULT_UI_CONFIG_PATH,
   pushbulletConfigPath = DEFAULT_PUSHBULLET_CONFIG_PATH
 } = {}) {
   let activeTask = '';
   const runInboxSaveWithConfig = runInboxSave
-    || (async ({ uiConfig }) => {
+    || (async ({ uiConfig, urls, syncReport }) => {
       const summaryResult = await saveInboxUrls({
         pushbulletConfigPath,
         uiConfig,
+        urls,
+        syncReport,
         saveLinksText: (text, options = {}) => saveLinks(text, {
           ...options,
           source: 'ui',
+          browser: options.browser || uiConfig.browser,
           outputRoot: options.outputRoot || uiConfig.paths.saveLinksOutputRoot || undefined,
           imagesRoot: options.imagesRoot || uiConfig.paths.saveLinksImagesRoot || undefined,
           conflictStrategy: uiConfig.naming.conflictStrategy,
@@ -372,6 +392,7 @@ function createUiServer({
           : undefined;
         const uiIncoming = {
           paths: incoming.paths,
+          browser: incoming.browser,
           naming: incoming.naming,
           runtime: incoming.runtime,
           inbox: inboxSection,
@@ -475,11 +496,13 @@ function createUiServer({
         const summary = await runExclusive('save-links', () => saveLinks(text, {
           task,
           source: 'ui',
+          browser: uiConfig.browser,
           outputRoot: uiConfig.paths.saveLinksOutputRoot || undefined,
           imagesRoot: uiConfig.paths.saveLinksImagesRoot || undefined,
           conflictStrategy: uiConfig.naming.conflictStrategy,
           maxTitleLength: uiConfig.naming.maxTitleLength,
-          uiRuntime: uiConfig.runtime
+          uiRuntime: uiConfig.runtime,
+          classificationCategories: uiConfig.inbox?.categories
         }));
         const report = buildTaskSummary(summary.results || [], { includeWarnings: true });
         sendJson(response, 200, {
@@ -520,10 +543,18 @@ function createUiServer({
 
       if (request.method === 'POST' && url.pathname === '/api/inbox/sync') {
         const payload = await readJsonBody(request);
-        const mode = payload && payload.mode === 'all' ? 'all' : 'latest';
+        const mode = payload?.mode === 'all'
+          ? 'all'
+          : payload?.mode === 'recent'
+            ? 'recent'
+            : 'latest';
+        const limit = Number.isFinite(Number(payload?.limit)) && Number(payload.limit) > 0
+          ? Math.trunc(Number(payload.limit))
+          : undefined;
         const result = await runExclusive('inbox-sync', () => runInbox({
           pushbulletConfigPath,
-          mode
+          mode,
+          limit
         }));
         sendJson(response, 200, {
           ok: true,
@@ -536,7 +567,11 @@ function createUiServer({
         const payload = await readJsonBody(request);
         const uiConfig = resolveUiConfig(uiConfigPath, payload);
         const result = await runExclusive('inbox-save', () => runInboxSaveWithConfig({
-          uiConfig
+          uiConfig,
+          urls: Array.isArray(payload?.urls) ? payload.urls : undefined,
+          syncReport: payload?.syncReport && typeof payload.syncReport === 'object'
+            ? payload.syncReport
+            : undefined
         }));
         const report = result?.summary || {
           total: result?.total || 0,
@@ -547,6 +582,70 @@ function createUiServer({
         sendJson(response, 200, {
           ok: true,
           report
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/open-output') {
+        const payload = await readJsonBody(request);
+        const uiConfig = resolveUiConfig(uiConfigPath, payload);
+        const folderPath = await openOutputFolder({
+          report: payload.report || {},
+          uiConfig,
+          projectDir: PROJECT_DIR,
+          defaultOutputDir: PATHS.outputDir
+        });
+        sendJson(response, 200, {
+          ok: true,
+          folderPath
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/browser/login') {
+        const payload = await readJsonBody(request);
+        const uiConfig = resolveUiConfig(uiConfigPath, payload);
+        const opened = await runExclusive('browser-login', () => openLoginBrowser({
+          browser: {
+            ...(uiConfig.browser || {}),
+            headless: false
+          },
+          url: String(payload.url || '').trim() || DEFAULT_LAUNCH_URL
+        }));
+        sendJson(response, 200, {
+          ok: true,
+          profileDir: opened.profileDir || opened.userDataDir || '',
+          userDataDir: opened.userDataDir || opened.profileDir || '',
+          debugUrl: opened.debugUrl || '',
+          url: opened.url || '',
+          pid: opened.pid || 0
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/export-links-list') {
+        const payload = await readJsonBody(request);
+        const uiConfig = resolveUiConfig(uiConfigPath, payload);
+        const groupKey = String(payload.groupKey || '').trim();
+        if (!groupKey) {
+          sendJson(response, 400, {
+            ok: false,
+            error: '缺少分组标识'
+          });
+          return;
+        }
+        const result = await exportLinksList({
+          report: payload.report || {},
+          groupKey,
+          uiConfig,
+          projectDir: PROJECT_DIR,
+          defaultOutputDir: PATHS.outputDir
+        });
+        sendJson(response, 200, {
+          ok: true,
+          filePath: result.filePath,
+          count: result.count,
+          groupKey: result.groupKey
         });
         return;
       }

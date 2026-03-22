@@ -10,6 +10,9 @@ const { runOcrWithProvider, shouldUseVisionOcr } = require('./ocr_provider');
 const { resolveMarkdownConflict } = require('./output_naming');
 const { getSummaryTagsWithProvider, normalizeSummaryTags, shouldUseAiSummary } = require('./summary_provider');
 
+const PROJECT_DIR = path.resolve(__dirname, '..', '..');
+const LOCAL_TESSDATA_PATH = path.join(PROJECT_DIR, 'assets', 'tesseract');
+
 function sanitizeFilename(name, maxLength = 80) {
   return String(name || '')
     .replace(/[\\/:*?"<>|]/g, '_')
@@ -69,6 +72,42 @@ function buildNotePaths({ outputRoot, collection, title, noteId, maxTitleLength 
 
 function buildCommentArchivePath({ outputRoot, noteId }) {
   return path.join(outputRoot, '_comments', `${noteId}.json`);
+}
+
+function resolveExportCommentWarningCode({ note, commentTotal, commentCollected, commentError } = {}) {
+  const explicit = String(note?.commentWarningCode || '').trim();
+  if (explicit) return explicit;
+
+  const message = String(commentError || '').trim();
+  if (/登录查看全部评论内容|网页端提示.*登录|先在当前 Chrome 会话中登录后重试/.test(message)) {
+    return 'comment_login_required';
+  }
+  if (Number(commentTotal) > 0 && Number(commentCollected) < Number(commentTotal)) {
+    return 'comment_incomplete';
+  }
+  if (message) {
+    return 'comment_warning';
+  }
+  return '';
+}
+
+function resolvePlatformLabel(note) {
+  const sourceType = String(note?.sourceType || '').trim();
+  const platform = String(note?.platform || '').trim();
+
+  if (sourceType === 'wechat_article' || platform === 'wechat') return '微信公众号';
+  if (sourceType === 'zhihu_article' || sourceType === 'zhihu_answer' || platform === 'zhihu') return '知乎';
+  if (sourceType === 'csdn_article' || platform === 'csdn') return 'CSDN';
+  return '小红书';
+}
+
+function renderSourceFooter(note, sourceUrl, author) {
+  const platformLabel = resolvePlatformLabel(note);
+  const authorName = String(author || '').trim() || '原文';
+  if (platformLabel === '小红书') {
+    return `*来源：${platformLabel} [@${authorName}](${sourceUrl})*`;
+  }
+  return `*来源：${platformLabel} [${authorName}](${sourceUrl})*`;
 }
 
 function writeCommentArchive({ outputRoot, noteId, noteTitle, comments }) {
@@ -371,7 +410,7 @@ function generateMarkdown({ note, content, ocrTexts, summary, tags, commentSumma
   }
 
   md += '\n---\n';
-  md += `*来源：小红书 [@${author}](${sourceUrl})*\n`;
+  md += `${renderSourceFooter(note, sourceUrl, author)}\n`;
   return md;
 }
 
@@ -471,7 +510,7 @@ function downloadImage(url, filepath) {
   });
 }
 
-async function ocrImages({ images, imagesRoot, noteId, tesseractLang = 'chi_sim+eng' }) {
+async function ocrImages({ images, imagesRoot, noteId, tesseractLang = 'eng+chi_sim' }) {
   if (!Array.isArray(images) || images.length === 0) return [];
 
   const contentImages = images.filter((url) =>
@@ -483,7 +522,22 @@ async function ocrImages({ images, imagesRoot, noteId, tesseractLang = 'chi_sim+
   );
   if (contentImages.length === 0) return [];
 
-  const worker = await createWorker(tesseractLang);
+  let worker = null;
+  try {
+    // Prefer local traineddata to avoid CDN issues (and reduce noisy "TESSDATA_PREFIX" errors).
+    worker = await createWorker(
+      tesseractLang,
+      undefined,
+      {
+        langPath: LOCAL_TESSDATA_PATH,
+        gzip: false,
+        cacheMethod: 'none'
+      }
+    );
+  } catch (error) {
+    // OCR is best-effort; never block note saving.
+    return [];
+  }
   const noteImageDir = path.join(imagesRoot, noteId);
   fs.mkdirSync(noteImageDir, { recursive: true });
   const results = [];
@@ -494,11 +548,15 @@ async function ocrImages({ images, imagesRoot, noteId, tesseractLang = 'chi_sim+
       const ext = url.includes('.png') ? '.png' : '.jpg';
       const filepath = path.join(noteImageDir, `img_${index}${ext}`);
 
-      await downloadImage(url, filepath);
-      const recognized = await worker.recognize(filepath);
-      const cleanText = cleanOcrText(recognized?.data?.text || '');
-      if (cleanText) {
-        results.push({ index, text: cleanText, url });
+      try {
+        await downloadImage(url, filepath);
+        const recognized = await worker.recognize(filepath);
+        const cleanText = cleanOcrText(recognized?.data?.text || '');
+        if (cleanText) {
+          results.push({ index, text: cleanText, url });
+        }
+      } catch (_) {
+        // best-effort: skip failed images
       }
     }
   } finally {
@@ -800,6 +858,28 @@ function limitImages(images, maxImagesPerNote) {
   return images.slice(0, Math.max(0, limit));
 }
 
+function resolveExportCollection({ note, content, summary, tags, collectionResolver }) {
+  if (typeof collectionResolver !== 'function') {
+    return note;
+  }
+
+  const resolvedCollection = String(collectionResolver({
+    note,
+    content,
+    summary,
+    tags
+  }) || '').trim();
+
+  if (!resolvedCollection) {
+    return note;
+  }
+
+  return {
+    ...note,
+    collection: resolvedCollection
+  };
+}
+
 async function processSingleNoteExport({
   outputRoot,
   imagesRoot,
@@ -808,7 +888,8 @@ async function processSingleNoteExport({
   visionConfigPath,
   conflictStrategy,
   maxTitleLength,
-  runtime
+  runtime,
+  collectionResolver
 }) {
   const projectDir = path.dirname(outputRoot);
   const config = applyRuntimeOverrides(loadOpenRouterConfig({ projectDir, configPath }), runtime);
@@ -834,37 +915,50 @@ async function processSingleNoteExport({
     ocrTexts,
     config
   });
+  const noteForWrite = resolveExportCollection({
+    note,
+    content,
+    summary,
+    tags,
+    collectionResolver
+  });
   const usefulComments = await getUsefulComments({ comments: note.comments, config });
   const commentSummary = await summarizeUsefulComments({ usefulComments, config });
   const commentError = note.commentError || '';
   const commentTotal = Number(note.commentTotal || 0);
   const commentCollected = Array.isArray(note.comments) ? note.comments.length : 0;
+  const commentWarningCode = resolveExportCommentWarningCode({
+    note,
+    commentTotal,
+    commentCollected,
+    commentError
+  });
   const warnings = [];
   if (commentTotal > 0 && commentCollected < commentTotal) {
     warnings.push({
       step: 'comments',
-      code: 'comment_incomplete',
+      code: commentWarningCode || 'comment_incomplete',
       message: commentError || `评论可能未完整加载：页面显示共 ${commentTotal} 条，当前抓取 ${commentCollected} 条。`
     });
   } else if (commentError) {
     warnings.push({
       step: 'comments',
-      code: 'comment_warning',
+      code: commentWarningCode || 'comment_warning',
       message: commentError
     });
   }
   let commentArchivePath = '';
   if (Array.isArray(note.comments) && note.comments.length > 0) {
     commentArchivePath = writeCommentArchive({
-      outputRoot: path.join(outputRoot, note.collection),
-      noteId: note.noteId,
-      noteTitle: note.title,
+      outputRoot: path.join(outputRoot, noteForWrite.collection),
+      noteId: noteForWrite.noteId,
+      noteTitle: noteForWrite.title,
       comments: note.comments
     });
   }
   const filepath = writeSingleNoteMarkdown({
     outputRoot,
-    note,
+    note: noteForWrite,
     content,
     ocrTexts,
     summary,
@@ -905,6 +999,7 @@ module.exports = {
   ocrImages,
   ocrImagesWithVision,
   processSingleNoteExport,
+  resolveExportCommentWarningCode,
   renderUsefulComments,
   sanitizeFilename,
   selectUsefulComments,

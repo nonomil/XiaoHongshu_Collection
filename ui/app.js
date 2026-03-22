@@ -8,12 +8,15 @@ const inboxSyncAllTopButton = document.getElementById('inbox-sync-all-top');
 const inboxSyncLatestButton = document.getElementById('inbox-sync-latest');
 const inboxSyncAllButton = document.getElementById('inbox-sync-all');
 const inboxSaveButton = document.getElementById('inbox-save');
+const inboxSyncRange = document.getElementById('inbox-sync-range');
 const statusText = document.getElementById('status-text');
 const resultOutput = document.getElementById('result-output');
 const resultSummary = document.getElementById('result-summary');
 const rawReport = document.getElementById('raw-report');
 const progressList = document.getElementById('progress-list');
 const summaryRow = document.getElementById('summary-row');
+const retryFailedResultsButton = document.getElementById('retry-failed-results');
+const openOutputFolderButton = document.getElementById('open-output-folder');
 const errorBanner = document.getElementById('error-banner');
 const errorTitle = document.getElementById('error-title');
 const errorMessage = document.getElementById('error-message');
@@ -34,9 +37,15 @@ const pathLinksOutput = document.getElementById('path-links-output');
 const pathLinksImages = document.getElementById('path-links-images');
 const pathCollectionOutput = document.getElementById('path-collection-output');
 const pathCollectionRaw = document.getElementById('path-collection-raw');
+const browserMode = document.getElementById('browser-mode');
+const browserChannel = document.getElementById('browser-channel');
+const browserUrl = document.getElementById('browser-url');
+const browserHeadless = document.getElementById('browser-headless');
+const openLoginBrowserButton = document.getElementById('open-login-browser');
 const namingStrategy = document.getElementById('naming-strategy');
 const namingMaxLength = document.getElementById('naming-max-length');
 const runtimeAi = document.getElementById('runtime-ai');
+const runtimeAutoClassify = document.getElementById('runtime-auto-classify');
 const runtimeVision = document.getElementById('runtime-vision');
 const runtimeOcrFallback = document.getElementById('runtime-ocr-fallback');
 const runtimeOpenrouterTimeout = document.getElementById('runtime-openrouter-timeout');
@@ -50,17 +59,60 @@ const uiShowRaw = document.getElementById('ui-show-raw');
 
 let currentConfig = null;
 let progressItems = new Map();
+let lastReport = null;
+let lastInboxSyncReport = null;
+let lastInboxSyncUrls = [];
+let activeResultFilter = 'all';
+
+function resolveResultLink(item) {
+  if (!item) return '';
+  return [item.input, item.navigationUrl, item.canonicalUrl, item.sourceUrl, item.url]
+    .map((value) => String(value || '').trim())
+    .find(Boolean) || '';
+}
+
+function collectUniqueResultLinks(items = []) {
+  const inputs = [];
+  const seen = new Set();
+
+  items.forEach((item) => {
+    const candidate = resolveResultLink(item);
+    if (!candidate || seen.has(candidate)) return;
+    seen.add(candidate);
+    inputs.push(candidate);
+  });
+
+  return inputs;
+}
+
+function collectRetryInputs(report = lastReport) {
+  if (!report || !Array.isArray(report.results)) return [];
+  return collectUniqueResultLinks(report.results.filter((item) => item?.status === 'failed'));
+}
+
+function syncOpenOutputButtonState(isBusy = false) {
+  if (!openOutputFolderButton) return;
+  openOutputFolderButton.disabled = isBusy || !lastReport;
+}
+
+function syncRetryFailedButtonState(isBusy = false) {
+  if (!retryFailedResultsButton) return;
+  retryFailedResultsButton.disabled = isBusy || collectRetryInputs().length === 0;
+}
 
 function setBusy(isBusy, message) {
   linksSubmit.disabled = isBusy;
   collectionSubmit.disabled = isBusy;
-  inboxSyncButton.disabled = isBusy;
+  if (inboxSyncButton) inboxSyncButton.disabled = isBusy;
   if (inboxSyncAllTopButton) inboxSyncAllTopButton.disabled = isBusy;
   if (inboxSyncLatestButton) inboxSyncLatestButton.disabled = isBusy;
   if (inboxSyncAllButton) inboxSyncAllButton.disabled = isBusy;
   if (inboxSaveButton) inboxSaveButton.disabled = isBusy;
+  if (openLoginBrowserButton) openLoginBrowserButton.disabled = isBusy;
   configSave.disabled = isBusy;
   configReload.disabled = isBusy;
+  syncRetryFailedButtonState(isBusy);
+  syncOpenOutputButtonState(isBusy);
   statusText.textContent = message;
 }
 
@@ -280,10 +332,15 @@ function updateProgressItem(index, status, payload = {}) {
 }
 
 function readNumber(input, fallback) {
+  if (!input) return fallback;
   const raw = String(input.value || '').trim();
   if (!raw) return fallback;
   const value = Number(raw);
   return Number.isFinite(value) ? value : fallback;
+}
+
+function readInboxSyncLimit() {
+  return readNumber(inboxSyncRange, 10);
 }
 
 function maskToken(token) {
@@ -324,11 +381,18 @@ function readConfigFromForm() {
       collectionOutputRoot: String(pathCollectionOutput.value || '').trim(),
       collectionRawPath: String(pathCollectionRaw.value || '').trim()
     },
+    browser: {
+      mode: browserMode?.value || fallback.browser?.mode || 'isolated',
+      browserUrl: String(browserUrl?.value || '').trim(),
+      channel: browserChannel?.value || fallback.browser?.channel || 'stable',
+      headless: browserHeadless ? browserHeadless.checked : fallback.browser?.headless === true
+    },
     naming: {
       conflictStrategy: namingStrategy.value || 'content-aware',
       maxTitleLength: readNumber(namingMaxLength, fallback.naming?.maxTitleLength || 80)
     },
     runtime: {
+      autoClassifyLinksEnabled: runtimeAutoClassify ? runtimeAutoClassify.checked : fallback.runtime?.autoClassifyLinksEnabled !== false,
       aiSummaryEnabled: runtimeAi.checked,
       visionOcrEnabled: runtimeVision.checked,
       ocrFallbackEnabled: runtimeOcrFallback.checked,
@@ -352,8 +416,13 @@ function applyConfigToForm(config) {
   pathLinksImages.value = cfg.paths?.saveLinksImagesRoot || '';
   pathCollectionOutput.value = cfg.paths?.collectionOutputRoot || '';
   pathCollectionRaw.value = cfg.paths?.collectionRawPath || '';
+  if (browserMode) browserMode.value = cfg.browser?.mode || 'isolated';
+  if (browserChannel) browserChannel.value = cfg.browser?.channel || 'stable';
+  if (browserUrl) browserUrl.value = cfg.browser?.browserUrl || '';
+  if (browserHeadless) browserHeadless.checked = cfg.browser?.headless === true;
   namingStrategy.value = cfg.naming?.conflictStrategy || 'content-aware';
   namingMaxLength.value = cfg.naming?.maxTitleLength ?? '';
+  if (runtimeAutoClassify) runtimeAutoClassify.checked = cfg.runtime?.autoClassifyLinksEnabled !== false;
   runtimeAi.checked = cfg.runtime?.aiSummaryEnabled !== false;
   runtimeVision.checked = cfg.runtime?.visionOcrEnabled !== false;
   runtimeOcrFallback.checked = cfg.runtime?.ocrFallbackEnabled !== false;
@@ -374,6 +443,431 @@ function applyConfigToForm(config) {
   updateRawReportVisibility(cfg);
 }
 
+function deriveResultGroupKey(item) {
+  if (!item || item.status === 'failed') return 'failure';
+  const savedCollection = helpers.describeSavedCollection ? helpers.describeSavedCollection(item) : '';
+  return savedCollection || '未分类';
+}
+
+function deriveResultGroupLabel(groupKey) {
+  if (groupKey === 'failure') return '失败';
+  return groupKey || '未分类';
+}
+
+function getResultWarningCount(item) {
+  return Array.isArray(item?.warnings) ? item.warnings.length : 0;
+}
+
+function hasResultWarnings(item) {
+  return getResultWarningCount(item) > 0;
+}
+
+function getResultSortLabel(item) {
+  return String(
+    formatResultLabel(item)
+    || item?.filepath
+    || item?.canonicalUrl
+    || item?.navigationUrl
+    || item?.noteId
+    || item?.input
+    || ''
+  ).trim();
+}
+
+function sortGroupItems(items = [], groupKey = '') {
+  const sorted = [...items];
+  sorted.sort((left, right) => {
+    const warningDelta = getResultWarningCount(right) - getResultWarningCount(left);
+    if (groupKey !== 'failure' && warningDelta !== 0) {
+      return warningDelta;
+    }
+
+    const leftLabel = getResultSortLabel(left);
+    const rightLabel = getResultSortLabel(right);
+    return leftLabel.localeCompare(rightLabel, 'zh-CN');
+  });
+  return sorted;
+}
+
+function compareResultGroups(left, right) {
+  if (left.key === 'failure' && right.key !== 'failure') return -1;
+  if (left.key !== 'failure' && right.key === 'failure') return 1;
+
+  const countDelta = right.items.length - left.items.length;
+  if (countDelta !== 0) return countDelta;
+
+  return left.label.localeCompare(right.label, 'zh-CN');
+}
+
+function buildResultGroups(results = []) {
+  const groups = [];
+  const groupMap = new Map();
+
+  results.forEach((item) => {
+    const groupKey = deriveResultGroupKey(item);
+    if (!groupMap.has(groupKey)) {
+      const group = {
+        key: groupKey,
+        label: deriveResultGroupLabel(groupKey),
+        items: []
+      };
+      groupMap.set(groupKey, group);
+      groups.push(group);
+    }
+    groupMap.get(groupKey).items.push(item);
+  });
+
+  groups.forEach((group) => {
+    group.items = sortGroupItems(group.items, group.key);
+    group.links = collectUniqueResultLinks(group.items);
+    group.warningCount = group.items.filter(hasResultWarnings).length;
+  });
+  groups.sort(compareResultGroups);
+
+  return groups;
+}
+
+async function copyTextToClipboard(text) {
+  const value = String(text || '');
+  if (!value) return;
+
+  const clipboardApi = window?.navigator?.clipboard || globalThis?.navigator?.clipboard;
+  if (clipboardApi?.writeText) {
+    await clipboardApi.writeText(value);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand && document.execCommand('copy');
+  document.body.removeChild(textarea);
+  if (!copied) {
+    throw new Error('当前环境不支持复制到剪贴板');
+  }
+}
+
+function fillLinksInput(links = [], groupLabel = '') {
+  const value = Array.isArray(links) ? links.join('\n') : '';
+  if (!value) return;
+  clearErrorBanner();
+  linksText.value = value;
+  if (typeof linksText.focus === 'function') {
+    linksText.focus();
+  }
+  if (typeof linksText.scrollIntoView === 'function') {
+    linksText.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+  statusText.textContent = `已填入 ${groupLabel} ${links.length} 条链接，可直接开始保存`;
+}
+
+function closeResultGroupMenus(exceptMenu = null) {
+  document.querySelectorAll('[data-group-action-menu="true"]').forEach((menu) => {
+    if (exceptMenu && menu === exceptMenu) return;
+    menu.hidden = true;
+  });
+  document.querySelectorAll('[data-group-action="toggle-more"]').forEach((toggle) => {
+    const controls = toggle.getAttribute('aria-controls');
+    const menu = controls ? document.getElementById(controls) : null;
+    if (exceptMenu && menu === exceptMenu) return;
+    toggle.setAttribute('aria-expanded', 'false');
+  });
+}
+
+function closeResultGroupMenuForElement(element) {
+  const wrap = element?.closest('.result-group-secondary');
+  if (!wrap) return;
+  const menu = wrap.querySelector('[data-group-action-menu="true"]');
+  const toggle = wrap.querySelector('[data-group-action="toggle-more"]');
+  if (menu) menu.hidden = true;
+  if (toggle) toggle.setAttribute('aria-expanded', 'false');
+}
+
+function toggleResultGroupMenu(toggleButton, menu) {
+  if (!toggleButton || !menu) return;
+  const nextOpen = menu.hidden;
+  closeResultGroupMenus(nextOpen ? menu : null);
+  menu.hidden = !nextOpen;
+  toggleButton.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+}
+
+function normalizeActiveResultFilter(groups = []) {
+  if (activeResultFilter === 'all') return;
+  if (activeResultFilter === 'warnings') {
+    const hasWarnings = groups.some((group) => group.warningCount > 0);
+    if (!hasWarnings) {
+      activeResultFilter = 'all';
+    }
+    return;
+  }
+  const exists = groups.some((group) => group.key === activeResultFilter);
+  if (!exists) {
+    activeResultFilter = 'all';
+  }
+}
+
+function buildResultRow(item) {
+  const row = document.createElement('div');
+  row.className = `result-row ${item.status || 'unknown'}`;
+  const title = document.createElement('div');
+  title.className = 'result-title';
+  title.textContent = formatResultLabel(item) || item.filepath || item.canonicalUrl || item.navigationUrl || item.noteId || item.input || '未命名';
+  const meta = document.createElement('div');
+  meta.className = 'result-meta-text';
+
+  if (item.status === 'failed') {
+    meta.textContent = helpers.describeResultStatus
+      ? helpers.describeResultStatus(item)
+      : (item.error || '失败');
+    if (item.error) {
+      row.title = item.error;
+    }
+  } else {
+    const platformLabel = helpers.describePlatform ? helpers.describePlatform(item) : '';
+    const savedCollection = helpers.describeSavedCollection ? helpers.describeSavedCollection(item) : '';
+    const warnings = Array.isArray(item.warnings) ? item.warnings : [];
+    const warningLabels = Array.from(new Set(
+      warnings
+        .map((warning) => helpers.describeWarning ? helpers.describeWarning(warning) : (warning.message || '存在采集提示'))
+        .filter(Boolean)
+    ));
+    const successParts = [
+      platformLabel,
+      savedCollection ? `分类 ${savedCollection}` : '',
+      '成功'
+    ].filter(Boolean);
+    if (warningLabels.length > 0) {
+      successParts.push(warningLabels.join('；'));
+    }
+    meta.textContent = successParts.join(' · ');
+    const titleParts = [
+      item.filepath || '',
+      ...warnings
+        .map((warning) => warning.message || '')
+        .filter(Boolean)
+    ].filter(Boolean);
+    if (titleParts.length > 0) {
+      row.title = titleParts.join('\n');
+    }
+  }
+
+  row.appendChild(title);
+  row.appendChild(meta);
+  return row;
+}
+
+function renderResultFilters(groups = []) {
+  const filterRow = document.createElement('div');
+  filterRow.className = 'result-filter-row';
+  const warningCount = groups.reduce((total, group) => total + (group.warningCount || 0), 0);
+
+  const options = [
+    {
+      key: 'all',
+      label: '全部',
+      count: groups.reduce((total, group) => total + group.items.length, 0)
+    },
+    ...(warningCount > 0 ? [{
+      key: 'warnings',
+      label: '有提示',
+      count: warningCount
+    }] : []),
+    ...groups.map((group) => ({
+      key: group.key,
+      label: group.label,
+      count: group.items.length
+    }))
+  ];
+
+  options.forEach((option) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'result-filter';
+    button.dataset.filterKey = option.key;
+    button.dataset.active = activeResultFilter === option.key ? 'true' : 'false';
+    button.textContent = `${option.label} ${option.count}`;
+    button.addEventListener('click', () => {
+      activeResultFilter = option.key;
+      renderSummary(lastReport);
+    });
+    filterRow.appendChild(button);
+  });
+
+  resultSummary.appendChild(filterRow);
+}
+
+function renderResultGroups(results = []) {
+  const groups = buildResultGroups(results);
+  if (groups.length === 0) return;
+  const hasWarnings = groups.some((group) => group.warningCount > 0);
+
+  normalizeActiveResultFilter(groups);
+  if (groups.length > 1 || hasWarnings) {
+    renderResultFilters(groups);
+  }
+
+  groups.forEach((group, groupIndex) => {
+    const visibleItems = activeResultFilter === 'warnings'
+      ? group.items.filter(hasResultWarnings)
+      : group.items;
+    const details = document.createElement('details');
+    details.className = 'result-group';
+    details.dataset.groupKey = group.key;
+    details.hidden = visibleItems.length === 0
+      || (
+        activeResultFilter !== 'all'
+        && activeResultFilter !== 'warnings'
+        && activeResultFilter !== group.key
+      );
+    details.open = true;
+
+    const summary = document.createElement('summary');
+    summary.className = 'result-group-summary';
+    const label = document.createElement('span');
+    label.className = 'result-group-label';
+    label.textContent = group.label;
+    const meta = document.createElement('span');
+    meta.className = 'result-group-meta';
+    const count = document.createElement('span');
+    count.className = 'result-group-count';
+    count.textContent = `${visibleItems.length} 条`;
+    summary.appendChild(label);
+    meta.appendChild(count);
+    if (group.warningCount > 0) {
+      const warningCount = document.createElement('span');
+      warningCount.className = 'result-group-warning-count';
+      warningCount.textContent = `有提示 ${group.warningCount}`;
+      warningCount.title = `${group.label} 中有 ${group.warningCount} 条结果包含采集提示`;
+      meta.appendChild(warningCount);
+    }
+    const runButton = document.createElement('button');
+    runButton.type = 'button';
+    runButton.className = 'result-group-action is-primary';
+    runButton.dataset.groupAction = 'run-links';
+    runButton.textContent = '开始保存本组';
+    runButton.disabled = !Array.isArray(group.links) || group.links.length === 0;
+    runButton.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!Array.isArray(group.links) || group.links.length === 0) return;
+      fillLinksInput(group.links, group.label);
+      await runSaveLinks(group.links.join('\n'));
+    });
+    meta.appendChild(runButton);
+
+    const secondaryWrap = document.createElement('span');
+    secondaryWrap.className = 'result-group-secondary';
+    const secondaryMenuId = `result-group-menu-${groupIndex}`;
+    const moreToggle = document.createElement('button');
+    moreToggle.type = 'button';
+    moreToggle.className = 'result-group-action result-group-more-toggle';
+    moreToggle.dataset.groupAction = 'toggle-more';
+    moreToggle.textContent = '更多';
+    moreToggle.disabled = !Array.isArray(group.links) || group.links.length === 0;
+    moreToggle.setAttribute('aria-expanded', 'false');
+    moreToggle.setAttribute('aria-controls', secondaryMenuId);
+    moreToggle.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleResultGroupMenu(moreToggle, secondaryMenu);
+    });
+    secondaryWrap.appendChild(moreToggle);
+
+    const secondaryMenu = document.createElement('div');
+    secondaryMenu.className = 'result-group-more-menu';
+    secondaryMenu.dataset.groupActionMenu = 'true';
+    secondaryMenu.id = secondaryMenuId;
+    secondaryMenu.hidden = true;
+
+    const copyButton = document.createElement('button');
+    copyButton.type = 'button';
+    copyButton.className = 'result-group-action';
+    copyButton.dataset.groupAction = 'copy-links';
+    copyButton.textContent = '复制本组链接';
+    copyButton.disabled = !Array.isArray(group.links) || group.links.length === 0;
+    copyButton.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!Array.isArray(group.links) || group.links.length === 0) return;
+      copyButton.disabled = true;
+      clearErrorBanner();
+      try {
+        await copyTextToClipboard(group.links.join('\n'));
+        statusText.textContent = `已复制 ${group.label} ${group.links.length} 条链接`;
+      } catch (error) {
+        statusText.textContent = '复制链接失败';
+        renderErrorBanner(error.message || '复制失败');
+      } finally {
+        closeResultGroupMenuForElement(copyButton);
+        copyButton.disabled = !Array.isArray(group.links) || group.links.length === 0;
+      }
+    });
+    secondaryMenu.appendChild(copyButton);
+
+    const fillButton = document.createElement('button');
+    fillButton.type = 'button';
+    fillButton.className = 'result-group-action';
+    fillButton.dataset.groupAction = 'fill-links';
+    fillButton.textContent = '填入输入框';
+    fillButton.disabled = !Array.isArray(group.links) || group.links.length === 0;
+    fillButton.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!Array.isArray(group.links) || group.links.length === 0) return;
+      fillLinksInput(group.links, group.label);
+      closeResultGroupMenuForElement(fillButton);
+    });
+    secondaryMenu.appendChild(fillButton);
+
+    const exportButton = document.createElement('button');
+    exportButton.type = 'button';
+    exportButton.className = 'result-group-action';
+    exportButton.dataset.groupAction = 'export-links';
+    exportButton.textContent = '导出本组清单';
+    exportButton.disabled = !Array.isArray(group.links) || group.links.length === 0;
+    exportButton.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!Array.isArray(group.links) || group.links.length === 0) return;
+      exportButton.disabled = true;
+      clearErrorBanner();
+      try {
+        const payload = await requestJson('/api/export-links-list', {
+          body: {
+            groupKey: group.key,
+            report: lastReport,
+            uiConfig: readConfigFromForm()
+          }
+        });
+        statusText.textContent = `已导出 ${group.label} ${payload.count || group.links.length} 条链接：${payload.filePath || ''}`;
+      } catch (error) {
+        statusText.textContent = '导出链接清单失败';
+        renderErrorBanner(error.message || '请求失败');
+      } finally {
+        closeResultGroupMenuForElement(exportButton);
+        exportButton.disabled = !Array.isArray(group.links) || group.links.length === 0;
+      }
+    });
+    secondaryMenu.appendChild(exportButton);
+    secondaryWrap.appendChild(secondaryMenu);
+    meta.appendChild(secondaryWrap);
+    summary.appendChild(meta);
+    details.appendChild(summary);
+
+    const list = document.createElement('div');
+    list.className = 'result-list';
+    visibleItems.forEach((item) => {
+      list.appendChild(buildResultRow(item));
+    });
+    details.appendChild(list);
+    resultSummary.appendChild(details);
+  });
+}
+
 function renderSummary(report) {
   resultSummary.innerHTML = '';
   if (!report) return;
@@ -381,8 +875,14 @@ function renderSummary(report) {
   if (typeof report.added === 'number') {
     const summary = document.createElement('div');
     summary.className = 'summary-block';
-    const modeLabel = report.mode === 'all' ? '全部' : '最新';
-    const cursorLabel = typeof report.since === 'number' && typeof report.nextModified === 'number'
+    const modeLabel = report.mode === 'all'
+      ? '全部'
+      : report.mode === 'recent'
+        ? `最近 ${report.limit || '?'} 条`
+        : '最新';
+    const cursorLabel = report.mode !== 'recent'
+      && typeof report.since === 'number'
+      && typeof report.nextModified === 'number'
       ? `${report.since} → ${report.nextModified}`
       : '';
     summary.innerHTML = `
@@ -433,22 +933,34 @@ function renderSummary(report) {
   }
 
   if (Array.isArray(report.results) && report.results.length > 0) {
-    const list = document.createElement('div');
-    list.className = 'result-list';
-    report.results.forEach((item) => {
-      const row = document.createElement('div');
-      row.className = `result-row ${item.status || 'unknown'}`;
-      const title = document.createElement('div');
-      title.className = 'result-title';
-      title.textContent = item.filepath || item.canonicalUrl || item.navigationUrl || item.noteId || item.input || '未命名';
-      const meta = document.createElement('div');
-      meta.className = 'result-meta-text';
-      meta.textContent = item.status === 'failed' ? (item.error || '失败') : '成功';
-      row.appendChild(title);
-      row.appendChild(meta);
-      list.appendChild(row);
+    renderResultGroups(report.results);
+  }
+
+  if (Array.isArray(report.warnings) && report.warnings.length > 0) {
+    const block = document.createElement('div');
+    block.className = 'summary-block';
+    const header = document.createElement('div');
+    const strong = document.createElement('strong');
+    strong.textContent = '采集提示';
+    const count = document.createElement('span');
+    count.textContent = String(report.warnings.length);
+    header.appendChild(strong);
+    header.appendChild(count);
+    block.appendChild(header);
+
+    const list = document.createElement('ul');
+    report.warnings.forEach((warning) => {
+      const item = document.createElement('li');
+      item.textContent = helpers.describeWarning
+        ? helpers.describeWarning(warning)
+        : (warning.message || '存在采集提示');
+      if (warning.message) {
+        item.title = warning.message;
+      }
+      list.appendChild(item);
     });
-    resultSummary.appendChild(list);
+    block.appendChild(list);
+    resultSummary.appendChild(block);
   }
 
   if (report.output?.steps || report.output?.logs) {
@@ -472,8 +984,11 @@ function renderSummary(report) {
 
 function renderReport(payload) {
   const report = payload?.report || payload;
+  lastReport = report || null;
   renderSummary(report);
   renderText(JSON.stringify(report, null, 2));
+  syncRetryFailedButtonState(false);
+  syncOpenOutputButtonState(false);
 }
 
 function formatResultLabel(result) {
@@ -525,6 +1040,16 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !settingsModal.hidden) {
     closeSettings();
   }
+  if (event.key === 'Escape') {
+    closeResultGroupMenus();
+  }
+});
+document.addEventListener('click', (event) => {
+  const target = event.target;
+  if (target && typeof target.closest === 'function' && target.closest('.result-group-secondary')) {
+    return;
+  }
+  closeResultGroupMenus();
 });
 if (errorDismiss) {
   errorDismiss.addEventListener('click', () => clearErrorBanner());
@@ -534,8 +1059,11 @@ linksClear.addEventListener('click', () => {
   linksText.value = '';
 });
 
-linksForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
+async function runSaveLinks(textOverride = null) {
+  const requestText = typeof textOverride === 'string' ? textOverride : linksText.value;
+  if (typeof textOverride === 'string') {
+    linksText.value = textOverride;
+  }
   setBusy(true, '正在顺序保存链接...');
   renderText('任务已提交，等待返回...');
   resetProgressList();
@@ -544,7 +1072,7 @@ linksForm.addEventListener('submit', async (event) => {
   try {
     const uiConfig = readConfigFromForm();
     const payload = await requestNdjson('/api/save-links-stream', {
-      text: linksText.value,
+      text: requestText,
       uiConfig
     }, {
       onEvent: (message) => {
@@ -576,6 +1104,11 @@ linksForm.addEventListener('submit', async (event) => {
   } finally {
     setBusy(false, statusText.textContent);
   }
+}
+
+linksForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  await runSaveLinks();
 });
 
 collectionSubmit.addEventListener('click', async () => {
@@ -599,6 +1132,26 @@ collectionSubmit.addEventListener('click', async () => {
   }
 });
 
+async function openLoginBrowser() {
+  setBusy(true, '正在打开项目登录浏览器...');
+  clearErrorBanner();
+
+  try {
+    const payload = await requestJson('/api/browser/login', {
+      body: {
+        uiConfig: readConfigFromForm()
+      }
+    });
+    renderText(JSON.stringify(payload, null, 2));
+    statusText.textContent = `已打开项目登录浏览器：${payload.profileDir || payload.userDataDir || ''}`;
+  } catch (error) {
+    statusText.textContent = '打开项目登录浏览器失败';
+    renderErrorBanner(error.message || '请求失败');
+  } finally {
+    setBusy(false, statusText.textContent);
+  }
+}
+
 async function runInboxSync(mode = 'latest') {
   setBusy(true, '正在同步收件箱...');
   renderText('任务已提交，等待返回...');
@@ -607,11 +1160,19 @@ async function runInboxSync(mode = 'latest') {
 
   try {
     const payload = await requestJson('/api/inbox/sync', {
-      body: { uiConfig: readConfigFromForm(), mode }
+      body: {
+        uiConfig: readConfigFromForm(),
+        mode,
+        ...(mode === 'recent' ? { limit: readInboxSyncLimit() } : {})
+      }
     });
+    lastInboxSyncReport = payload?.report || null;
+    lastInboxSyncUrls = Array.isArray(payload?.report?.urls) ? payload.report.urls : [];
     statusText.textContent = '收件箱同步完成';
     renderReport(payload);
   } catch (error) {
+    lastInboxSyncReport = null;
+    lastInboxSyncUrls = [];
     statusText.textContent = '收件箱同步失败';
     renderText(error.message);
     renderErrorBanner(error.message || '请求失败');
@@ -628,7 +1189,11 @@ async function runInboxSave() {
 
   try {
     const payload = await requestJson('/api/inbox/save', {
-      body: { uiConfig: readConfigFromForm() }
+      body: {
+        uiConfig: readConfigFromForm(),
+        ...(lastInboxSyncReport ? { syncReport: lastInboxSyncReport } : {}),
+        ...(lastInboxSyncUrls.length > 0 ? { urls: lastInboxSyncUrls } : {})
+      }
     });
     statusText.textContent = '收件箱解析保存完成';
     renderReport(payload);
@@ -641,18 +1206,54 @@ async function runInboxSave() {
   }
 }
 
-inboxSyncButton.addEventListener('click', () => runInboxSync('latest'));
+if (inboxSyncButton) {
+  inboxSyncButton.addEventListener('click', () => runInboxSync('recent'));
+}
 if (inboxSyncAllTopButton) {
   inboxSyncAllTopButton.addEventListener('click', () => runInboxSync('all'));
 }
 if (inboxSyncLatestButton) {
-  inboxSyncLatestButton.addEventListener('click', () => runInboxSync('latest'));
+  inboxSyncLatestButton.addEventListener('click', () => runInboxSync('recent'));
 }
 if (inboxSyncAllButton) {
   inboxSyncAllButton.addEventListener('click', () => runInboxSync('all'));
 }
 if (inboxSaveButton) {
   inboxSaveButton.addEventListener('click', () => runInboxSave());
+}
+if (openOutputFolderButton) {
+  openOutputFolderButton.addEventListener('click', async () => {
+    if (!lastReport) return;
+    openOutputFolderButton.disabled = true;
+    clearErrorBanner();
+    try {
+      const payload = await requestJson('/api/open-output', {
+        body: {
+          report: lastReport,
+          uiConfig: readConfigFromForm()
+        }
+      });
+      statusText.textContent = `已打开输出目录：${payload.folderPath || 'output'}`;
+    } catch (error) {
+      statusText.textContent = '打开输出文件夹失败';
+      renderErrorBanner(error.message || '请求失败');
+    } finally {
+      syncOpenOutputButtonState(false);
+    }
+  });
+}
+if (openLoginBrowserButton) {
+  openLoginBrowserButton.addEventListener('click', async () => {
+    await openLoginBrowser();
+  });
+}
+if (retryFailedResultsButton) {
+  retryFailedResultsButton.addEventListener('click', async () => {
+    const retryInputs = collectRetryInputs();
+    if (retryInputs.length === 0) return;
+    activeResultFilter = 'all';
+    await runSaveLinks(retryInputs.join('\n'));
+  });
 }
 
 loadUiConfig().catch((error) => {
