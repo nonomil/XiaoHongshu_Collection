@@ -1,0 +1,41 @@
+{
+  "report": "2026-03-24-home-visual-refine-audit",
+  "captured_at": "2026-03-24",
+  "base_url": "http://127.0.0.1:3031/",
+  "captures": [
+    {
+      "file": "desktop-home.png",
+      "url": "http://127.0.0.1:3031/?t=20260324b",
+      "viewport": {
+        "width": 1440,
+        "height": 1200
+      },
+      "state": "home-desktop-refined",
+      "note": "首页桌面态，验证外层壳是否已弱化、主卡片是否更清晰"
+    },
+    {
+      "file": "desktop-settings.png",
+      "url": "http://127.0.0.1:3031/?t=20260324b",
+      "viewport": {
+        "width": 1440,
+        "height": 1200
+      },
+      "state": "settings-desktop-refined",
+      "note": "设置弹层桌面态，验证导航与内容视觉主次"
+    },
+    {
+      "file": "mobile-home.png",
+      "url": "http://127.0.0.1:3031/?t=20260324b",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "state": "home-mobile-refined",
+      "note": "首页移动端，验证在单列布局下仍然没有明显堆框感"
+    }
+  ],
+  "verification": {
+    "command": "npm test",
+    "result": "352/352 pass"
+  }
+}
