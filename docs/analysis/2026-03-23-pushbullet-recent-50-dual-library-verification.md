@@ -123,6 +123,29 @@ Date: 2026-03-23
 
 最值得继续做的不是再扩展保存数量，而是补一层“验证报告自动化”：
 
-1. 增加一个小脚本，自动输出“最近 N 条中哪些 URL 已双份落盘”
+1. 在 CLI 中固化“最近 N 条双库核对”命令，避免每次用内联脚本手查
 2. 在 UI 里给收件箱同步结果增加“已保存 / 未保存 / 已双份镜像”统计
 3. 对小红书短链也做同样的最近 N 条回查报告，便于发现评论采集失败与镜像缺失
+
+## 已落地的自动化核对
+
+上述第 1 项现在已经落地为仓库命令：
+
+```powershell
+npm run inbox:sync -- --mode recent --limit 50
+npm run inbox:verify -- --limit 50
+```
+
+对应脚本：
+
+- `scripts/inbox_sync.js`
+- `scripts/inbox_verify_recent.js`
+- `scripts/lib/inbox_verify.js`
+
+当前这条核对链路的作用是：
+
+- 直接从 `data/inbox_links.jsonl` 的最近 N 条里筛公众号 / 知乎链接
+- 扫描 `output/收件箱同步/**/*.md`
+- 输出每个目标 URL 是否同时具备：
+  - 分类稿
+  - 总库镜像稿

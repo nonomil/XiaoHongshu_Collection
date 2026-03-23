@@ -98,6 +98,8 @@ node scripts/ocr_and_write.js
 - 单笔记保存（项目登录态复用）：`node scripts/login_browser.js` 后，再执行 `node scripts/save_note.js --browser-headless <链接>`
 - 单笔记保存（当前浏览器增强）：`node scripts/save_note.js --browser-mode current-browser <笔记链接>`
 - 知乎收藏夹导出（实验 CLI）：`node scripts/save_zhihu_favorites.js <收藏夹链接> --cookie "<知乎 Cookie>"`
+- Pushbullet 收件箱同步：`npm run inbox:sync -- --mode recent --limit 50`
+- 收件箱双库核对：`npm run inbox:verify -- --limit 50`
 - 收藏夹导出（CLI）：`node scripts/extract_v4.js` + `node scripts/ocr_and_write.js`
 - UI 入口：运行 `启动小红书保存入口.bat`，浏览器访问 `http://127.0.0.1:3030/`
 
@@ -133,6 +135,30 @@ node scripts/save_zhihu_favorites.js https://www.zhihu.com/collection/123456789 
 - 已支持从活动 Chrome 会话自动提取知乎 Cookie
 - 已支持自动探测收藏夹标题
 - UI 入口还在下一阶段
+
+## Pushbullet 收件箱同步与双库核对
+
+如果你想直接验证“最近 N 条里的公众号 / 知乎链接，是否同时写入了分类库和总库镜像”，现在可以直接使用两条命令：
+
+```powershell
+# 拉取最近 50 条消息到本地 inbox
+npm run inbox:sync -- --mode recent --limit 50
+
+# 核对最近 50 条中的公众号 / 知乎链接，是否同时存在分类稿和总库镜像稿
+npm run inbox:verify -- --limit 50
+```
+
+说明：
+
+- `inbox:sync` 支持 `--mode latest|recent|all`
+- `recent` 模式下支持 `--limit 10|20|30|40|50|60`
+- `inbox:verify` 会扫描 `output/收件箱同步/**/*.md`
+- 目前核对目标限定为：
+  - `mp.weixin.qq.com`
+  - `zhihu.com`
+- 判定通过的标准是每个目标链接至少找到两份稿件：
+  - 1 份分类稿
+  - 1 份总库镜像稿（`收件箱同步/全部`）
 
 ## 目录结构
 ```

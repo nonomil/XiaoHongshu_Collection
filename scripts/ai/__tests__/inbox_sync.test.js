@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 
+const { parseArgs, run } = require('../../inbox_sync');
 const { syncInbox } = require('../../lib/inbox_sync');
 const { resolveTestTmpDir } = require('./test_tmp');
 
@@ -163,4 +164,45 @@ test('syncInbox recent mode returns pulled urls for follow-up save', async () =>
     'http://xhslink.com/o/abc',
     'https://mp.weixin.qq.com/s/demo'
   ]);
+});
+
+test('parseArgs accepts recent mode and limit', () => {
+  assert.deepEqual(
+    parseArgs(['--mode', 'recent', '--limit', '50']),
+    {
+      mode: 'recent',
+      limit: 50
+    }
+  );
+});
+
+test('parseArgs also accepts npm forwarded positional recent mode and limit', () => {
+  assert.deepEqual(
+    parseArgs(['recent', '50']),
+    {
+      mode: 'recent',
+      limit: 50
+    }
+  );
+});
+
+test('run forwards parsed cli args into syncInbox', async () => {
+  const result = await run(
+    ['--mode', 'recent', '--limit', '30'],
+    {
+      syncInboxFn: async (options) => {
+        assert.equal(options.mode, 'recent');
+        assert.equal(options.limit, 30);
+        return {
+          mode: 'recent',
+          total: 30,
+          added: 5,
+          skipped: 25
+        };
+      }
+    }
+  );
+
+  assert.equal(result.mode, 'recent');
+  assert.equal(result.total, 30);
 });
