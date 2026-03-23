@@ -7,7 +7,9 @@ const {
   buildZhihuCollectionApiUrl,
   buildZhihuFavoritesPaths,
   collectZhihuFavoriteEntries,
+  extractZhihuCollectionTitleFromHtml,
   fetchZhihuCollectionPage,
+  fetchZhihuCollectionTitle,
   normalizeZhihuCollectionPage,
   parseZhihuCollectionId,
   readZhihuFavoritesProgress,
@@ -133,6 +135,52 @@ test('normalizeZhihuCollectionPage maps raw Zhihu api payload into collector pag
     nextOffset: 20,
     totals: 88
   });
+});
+
+test('extractZhihuCollectionTitleFromHtml reads collection title from meta tags and strips site suffix', () => {
+  const title = extractZhihuCollectionTitleFromHtml(`
+    <html>
+      <head>
+        <meta property="og:title" content="AI 自动化收藏 - 收藏夹 - 知乎" />
+        <title>备用标题 - 知乎</title>
+      </head>
+      <body>
+        <h1>页面标题</h1>
+      </body>
+    </html>
+  `);
+
+  assert.equal(title, 'AI 自动化收藏');
+});
+
+test('fetchZhihuCollectionTitle requests collection html with cookie header', async () => {
+  let captured = null;
+  const title = await fetchZhihuCollectionTitle({
+    collectionUrl: 'https://www.zhihu.com/collection/123456789',
+    cookie: 'd_c0=abc123',
+    requestTextFn: async (url, options = {}) => {
+      captured = { url, options };
+      return `
+        <html>
+          <head>
+            <title>AI 自动化收藏 - 收藏夹 - 知乎</title>
+          </head>
+          <body></body>
+        </html>
+      `;
+    }
+  });
+
+  assert.deepEqual(captured, {
+    url: 'https://www.zhihu.com/collection/123456789',
+    options: {
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        Cookie: 'd_c0=abc123'
+      }
+    }
+  });
+  assert.equal(title, 'AI 自动化收藏');
 });
 
 test('fetchZhihuCollectionPage requests Zhihu api with cookie header and returns normalized page', async () => {

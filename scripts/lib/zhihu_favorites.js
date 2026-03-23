@@ -2,6 +2,7 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const path = require('path');
+const { JSDOM } = require('jsdom');
 const { detectSourceFromUrl } = require('./source_detector');
 
 function safeUrl(input) {
@@ -60,12 +61,76 @@ function requestJson(url, options = {}) {
   });
 }
 
+function requestText(url, options = {}, redirectCount = 0) {
+  return new Promise((resolve, reject) => {
+    const target = String(url || '').trim();
+    const transport = target.startsWith('https://') ? https : http;
+    const request = transport.get(target, {
+      headers: options.headers || {}
+    }, (response) => {
+      const status = Number(response.statusCode || 0) || 0;
+      const location = String(response.headers?.location || '').trim();
+      if (status >= 300 && status < 400 && location) {
+        response.resume();
+        if (redirectCount >= 3) {
+          reject(new Error(`Zhihu collection request redirected too many times: ${target}`));
+          return;
+        }
+
+        const nextUrl = new URL(location, target).toString();
+        resolve(requestText(nextUrl, options, redirectCount + 1));
+        return;
+      }
+
+      let raw = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => { raw += chunk; });
+      response.on('end', () => {
+        if (status >= 400) {
+          reject(new Error(`Zhihu collection request failed: ${status}`));
+          return;
+        }
+        resolve(raw);
+      });
+    });
+
+    request.on('error', reject);
+  });
+}
+
 function sanitizeCollectionTitle(value) {
   const normalized = String(value || '')
     .replace(/[\\/:*?"<>|]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return normalized || '未命名收藏夹';
+}
+
+function readFirstText(values = []) {
+  for (const value of values) {
+    const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+    if (normalized) return normalized;
+  }
+  return '';
+}
+
+function normalizeZhihuCollectionTitle(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*[-|｜|_·]\s*知乎(?:\s*[-|｜|_·].*)?$/u, '')
+    .replace(/\s*[-|｜|_·]\s*收藏夹$/u, '')
+    .trim();
+}
+
+function extractZhihuCollectionTitleFromHtml(html = '') {
+  const dom = new JSDOM(String(html || ''));
+  const { document } = dom.window;
+  return normalizeZhihuCollectionTitle(readFirstText([
+    document.querySelector('meta[property="og:title"]')?.getAttribute('content'),
+    document.querySelector('meta[name="title"]')?.getAttribute('content'),
+    document.querySelector('h1')?.textContent,
+    document.title
+  ]));
 }
 
 function buildZhihuFavoritesPaths({
@@ -211,6 +276,21 @@ async function fetchZhihuCollectionPage({
   return normalizeZhihuCollectionPage(payload);
 }
 
+async function fetchZhihuCollectionTitle({
+  collectionUrl,
+  cookie = '',
+  requestTextFn = requestText
+} = {}) {
+  return extractZhihuCollectionTitleFromHtml(
+    await requestTextFn(String(collectionUrl || '').trim(), {
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        ...(String(cookie || '').trim() ? { Cookie: String(cookie || '').trim() } : {})
+      }
+    })
+  );
+}
+
 async function collectZhihuFavoriteEntries({
   collectionId,
   progress,
@@ -318,7 +398,9 @@ module.exports = {
   buildZhihuCollectionApiUrl,
   buildZhihuFavoritesPaths,
   collectZhihuFavoriteEntries,
+  extractZhihuCollectionTitleFromHtml,
   fetchZhihuCollectionPage,
+  fetchZhihuCollectionTitle,
   normalizeZhihuCollectionPage,
   parseZhihuCollectionId,
   readZhihuFavoritesProgress,

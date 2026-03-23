@@ -111,6 +111,14 @@ node scripts/ocr_and_write.js
 node scripts/save_zhihu_favorites.js https://www.zhihu.com/collection/123456789 --cookie "d_c0=..."
 ```
 
+如果你没有手工传 `--cookie`，CLI 现在会自动按下面优先级尝试拿知乎登录态：
+
+1. `ZHIHU_COOKIE` 环境变量
+2. 项目自己的 Chrome 调试会话（`node scripts/login_browser.js` 打开并登录过）
+3. 当前普通 Chrome 会话（Chrome 146+ 开启 `chrome://inspect/#remote-debugging`）
+
+如果收藏夹标题没有手工传 `--title`，CLI 也会自动请求收藏夹页面并探测标题；失败时再回退为 `收藏夹 <id>`。
+
 可选参数：
 
 - `--title "AI 收藏"`：指定导出目录名，默认使用 `收藏夹 <id>`
@@ -122,8 +130,9 @@ node scripts/save_zhihu_favorites.js https://www.zhihu.com/collection/123456789 
 - 已支持收藏夹 URL 识别
 - 已支持分页 URL 构造、响应归一化、进度文件持久化
 - 已支持失败页 warning 记录和按页续跑
-- 当前仍需要手工通过 `--cookie` 或环境变量 `ZHIHU_COOKIE` 传入知乎登录态
-- 收藏夹标题自动探测、浏览器会话自动取 Cookie、UI 入口还在下一阶段
+- 已支持从活动 Chrome 会话自动提取知乎 Cookie
+- 已支持自动探测收藏夹标题
+- UI 入口还在下一阶段
 
 ## 目录结构
 ```
