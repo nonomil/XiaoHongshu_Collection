@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 
 const {
+  buildOpenFolderCommand,
   openFolder,
   resolveOutputFolder
 } = require('../../lib/open_output');
@@ -53,6 +54,7 @@ test('resolveOutputFolder falls back to configured collection output root when r
 test('openFolder delegates to spawn and returns the normalized folder path', async () => {
   const calls = [];
   const folderPath = await openFolder('G:/UserCode/XiaoHongshu_Collection/output/单条笔记保存', {
+    pathExistsFn: () => true,
     spawnFn: (command, args, options) => {
       calls.push({ command, args, options });
       return {
@@ -64,5 +66,33 @@ test('openFolder delegates to spawn and returns the normalized folder path', asy
   assert.equal(folderPath, path.normalize('G:/UserCode/XiaoHongshu_Collection/output/单条笔记保存'));
   assert.equal(calls.length, 1);
   assert.equal(typeof calls[0].command, 'string');
-  assert.deepEqual(calls[0].args, [path.normalize('G:/UserCode/XiaoHongshu_Collection/output/单条笔记保存')]);
+  assert.ok(Array.isArray(calls[0].args));
+  assert.equal(calls[0].args.length >= 1, true);
+});
+
+test('buildOpenFolderCommand uses cmd start on Windows', () => {
+  const command = buildOpenFolderCommand('G:/UserCode/XiaoHongshu_Collection/output/AI', {
+    platform: 'win32'
+  });
+
+  assert.equal(command.command, 'cmd.exe');
+  assert.deepEqual(command.args.slice(0, 3), ['/d', '/s', '/c']);
+  assert.match(command.args[3], /start ""/i);
+  assert.match(command.args[3], /XiaoHongshu_Collection/);
+});
+
+test('openFolder rejects when the system open command emits an error', async () => {
+  await assert.rejects(
+    () => openFolder('G:/UserCode/XiaoHongshu_Collection/output/AI', {
+      pathExistsFn: () => true,
+      spawnFn: () => {
+        const { EventEmitter } = require('node:events');
+        const child = new EventEmitter();
+        child.unref = () => {};
+        process.nextTick(() => child.emit('error', new Error('mock explorer failure')));
+        return child;
+      }
+    }),
+    /mock explorer failure/
+  );
 });

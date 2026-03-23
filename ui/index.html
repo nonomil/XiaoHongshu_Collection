@@ -13,17 +13,18 @@
 <body>
   <main class="page">
     <header class="topbar">
-      <div class="topbar-title">
-        <p class="eyebrow">LOCAL XHS WORKBENCH</p>
-        <h1>小红书本地保存控制台</h1>
-        <p class="subtitle">面向日常使用的本地工具：粘贴链接或导出收藏，一键保存到本地。</p>
-      </div>
+      <section class="hero-panel">
+        <div class="topbar-title">
+          <p class="eyebrow">LOCAL XHS WORKBENCH</p>
+          <h1>小红书本地保存控制台</h1>
+          <p class="subtitle">把收藏、外部收件箱和单条链接统一收口到一个界面，减少来回切换和重复操作。</p>
+        </div>
+        <section id="summary-row" class="summary-row" aria-label="当前运行设置"></section>
+      </section>
       <div class="topbar-actions">
         <button id="open-settings" class="button ghost" type="button">设置</button>
       </div>
     </header>
-
-    <section id="summary-row" class="summary-row"></section>
 
     <section class="layout">
       <div class="stack">
@@ -33,7 +34,7 @@
               <p class="card-kicker">快捷批量入口</p>
               <h2>收藏导出与收件箱同步</h2>
             </div>
-            <p class="entry-secondary-lead">把常用批量入口放在最前面。你登录好浏览器后，可以直接在这一排完成收藏导出或收件箱同步。</p>
+            <p class="entry-secondary-lead">先完成浏览器登录，再在这一排直接做批量导出或外部收件箱同步，流程会更顺。</p>
           </div>
 
           <div class="entry-secondary-grid">
@@ -41,7 +42,7 @@
               <div class="card-head">
                 <p class="card-kicker">入口 02</p>
                 <h2>收藏导出 + OCR</h2>
-                <p>适合一次性导出当前收藏内容，直接走收藏抓取与 OCR 写回流程。</p>
+                <p>一次性导出当前收藏内容，直接走收藏抓取与 OCR 写回。</p>
               </div>
 
               <div class="card-body">
@@ -63,7 +64,7 @@
               <div class="card-head">
                 <p class="card-kicker">入口 03</p>
                 <h2>外部收件箱</h2>
-                <p>把外部服务里的链接先同步到本地收件箱，再继续解析保存。同步和落地都集中在这里。</p>
+                <p>先同步外部服务链接，再继续解析保存。同步和落地都集中在这里。</p>
               </div>
               <div class="card-body">
                 <div class="inline-hints">
@@ -140,7 +141,7 @@
           <ul id="error-hints" class="error-hints"></ul>
         </section>
         <div class="result-head">
-          <div>
+          <div class="result-head-copy">
             <h2>执行结果</h2>
             <p id="status-text">等待任务开始</p>
           </div>

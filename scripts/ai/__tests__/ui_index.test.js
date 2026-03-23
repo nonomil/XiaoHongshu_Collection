@@ -46,6 +46,17 @@ test('index.html pairs entry 02 and entry 03 inside a shared action row', () => 
   assert.match(html, /entry-secondary-card/);
 });
 
+test('index.html places summary shelf inside the hero header', () => {
+  const html = readIndexHtml();
+  const topbarIndex = html.indexOf('class="topbar"');
+  const summaryIndex = html.indexOf('id="summary-row"');
+  const layoutIndex = html.indexOf('class="layout"');
+  assert.ok(topbarIndex >= 0);
+  assert.ok(summaryIndex > topbarIndex);
+  assert.ok(layoutIndex > summaryIndex);
+  assert.match(html, /hero-panel/);
+});
+
 test('index.html contains inbox category settings field', () => {
   const html = readIndexHtml();
   assert.match(html, /收件箱分类规则/);

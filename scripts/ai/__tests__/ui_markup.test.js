@@ -44,3 +44,15 @@ test('styles.css contains paired entry layout styles for entry 02 and 03', () =>
   assert.match(css, /\.button\.button-block/);
   assert.match(css, /grid-template-columns:\s*minmax\(0,\s*0\.9fr\)\s+minmax\(0,\s*1\.1fr\)/);
 });
+
+test('styles.css keeps result action buttons on a horizontal toolbar without vertical text wrap', () => {
+  assert.match(css, /\.result-head\s*\{[\s\S]*display:\s*grid;/);
+  assert.match(css, /\.result-actions\s*\{[\s\S]*justify-content:\s*flex-start;/);
+  assert.match(css, /\.result-actions\s+\.button\s*\{[\s\S]*white-space:\s*nowrap;/);
+});
+
+test('styles.css adds a compact hero panel and summary shelf', () => {
+  assert.match(css, /\.hero-panel/);
+  assert.match(css, /\.summary-row\s*\{[\s\S]*padding:/);
+  assert.match(css, /\.summary-chip\s*\{[\s\S]*min-height:/);
+});
