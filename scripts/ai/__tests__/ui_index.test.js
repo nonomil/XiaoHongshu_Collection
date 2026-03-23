@@ -83,6 +83,24 @@ test('index.html contains project login browser controls for persistent session 
   assert.match(html, /无头|后台/);
 });
 
+test('index.html organizes settings into grouped tabs', () => {
+  const html = readIndexHtml();
+  assert.match(html, /settings-tablist/);
+  assert.match(html, /role="tablist"/);
+  assert.match(html, /settings-tab-basic/);
+  assert.match(html, /settings-tab-browser/);
+  assert.match(html, /settings-tab-inbox/);
+  assert.match(html, /settings-tab-advanced/);
+  assert.match(html, /基础保存/);
+  assert.match(html, /浏览器接入/);
+  assert.match(html, /外部入口/);
+  assert.match(html, /高级参数/);
+  assert.match(html, /data-settings-panel="basic"/);
+  assert.match(html, /data-settings-panel="browser"/);
+  assert.match(html, /data-settings-panel="inbox"/);
+  assert.match(html, /data-settings-panel="advanced"/);
+});
+
 test('index.html contains result empty state guidance for supported sources', () => {
   const html = readIndexHtml();
   assert.match(html, /还没有执行任务/);

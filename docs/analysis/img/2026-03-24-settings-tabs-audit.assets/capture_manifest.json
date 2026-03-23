@@ -1,0 +1,86 @@
+{
+  "report": "2026-03-24-settings-tabs-audit",
+  "captured_at": "2026-03-24",
+  "base_url": "http://127.0.0.1:3031/",
+  "captures": [
+    {
+      "file": "desktop-home.png",
+      "url": "http://127.0.0.1:3031/",
+      "viewport": {
+        "width": 1440,
+        "height": 1200
+      },
+      "state": "desktop-home",
+      "note": "桌面首页，主入口、结果区和设置入口都可见",
+      "key_points": [
+        "首页布局为双列",
+        "结果区置于首屏右侧",
+        "设置按钮位于右上角"
+      ]
+    },
+    {
+      "file": "desktop-settings-modal.png",
+      "url": "http://127.0.0.1:3031/",
+      "viewport": {
+        "width": 1440,
+        "height": 1200
+      },
+      "state": "desktop-settings-basic",
+      "note": "桌面端设置弹层，展示基础保存页签和底部操作区",
+      "key_points": [
+        "左侧页签分组可见",
+        "右侧内容改为按组展示",
+        "保存设置与重新加载固定在底部"
+      ]
+    },
+    {
+      "file": "desktop-settings-browser.png",
+      "url": "http://127.0.0.1:3031/",
+      "viewport": {
+        "width": 1440,
+        "height": 1200
+      },
+      "state": "desktop-settings-browser",
+      "note": "桌面端浏览器接入页签，验证长说明场景仍可读",
+      "key_points": [
+        "浏览器模式、通道、地址字段可见",
+        "登录浏览器入口可见",
+        "长说明仍在单屏可读范围内"
+      ]
+    },
+    {
+      "file": "mobile-home.png",
+      "url": "http://127.0.0.1:3031/",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "state": "mobile-home",
+      "note": "移动端首页，结果区优先于入口卡片",
+      "key_points": [
+        "结果区排在前面",
+        "入口 02 与入口 03 纵向排列",
+        "同步范围下拉框仍可见"
+      ]
+    },
+    {
+      "file": "mobile-settings-modal.png",
+      "url": "http://127.0.0.1:3031/",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "state": "mobile-settings-browser",
+      "note": "移动端设置弹层，页签折成两列并保持浏览器页签可操作",
+      "key_points": [
+        "四个页签首屏全部可见",
+        "移动端页签为两列网格",
+        "内容区仍为单列阅读"
+      ]
+    }
+  ],
+  "verification": {
+    "command": "npm test",
+    "result": "352/352 pass"
+  }
+}

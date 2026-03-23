@@ -957,7 +957,7 @@ select:focus {
   top: 8vh;
   left: 50%;
   transform: translateX(-50%);
-  width: min(760px, calc(100vw - 32px));
+  width: min(920px, calc(100vw - 32px));
   max-height: 84vh;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -990,8 +990,109 @@ select:focus {
 }
 
 .modal-body {
+  display: grid;
+  gap: 18px;
   padding: 20px 24px 24px;
   overflow: auto;
+}
+
+.settings-intro {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px dashed rgba(43, 76, 78, 0.2);
+  background: linear-gradient(180deg, rgba(43, 76, 78, 0.06) 0%, rgba(255, 253, 248, 0.98) 100%);
+}
+
+.settings-intro p {
+  margin: 0;
+}
+
+.settings-kicker {
+  color: var(--teal);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 220px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.settings-tablist {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.settings-tab {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid rgba(29, 27, 22, 0.1);
+  border-radius: 18px;
+  background: rgba(29, 27, 22, 0.04);
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.settings-tab strong {
+  font-size: 14px;
+}
+
+.settings-tab span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.settings-tab:hover {
+  transform: translateY(-1px);
+  border-color: rgba(196, 107, 60, 0.25);
+}
+
+.settings-tab[data-active='true'] {
+  background: linear-gradient(180deg, rgba(241, 227, 212, 0.92) 0%, rgba(255, 250, 242, 0.98) 100%);
+  border-color: rgba(196, 107, 60, 0.28);
+  box-shadow: 0 12px 24px rgba(31, 24, 18, 0.08);
+}
+
+.settings-tab[data-active='true'] span {
+  color: var(--accent-dark);
+}
+
+.settings-panels {
+  min-width: 0;
+}
+
+.settings-panel {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.settings-panel[hidden] {
+  display: none !important;
+}
+
+.modal-footer {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  gap: 10px;
+  padding-top: 16px;
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255, 250, 242, 0.2) 0%, rgba(255, 250, 242, 1) 28%);
 }
 
 .icon-button {
@@ -1093,6 +1194,22 @@ select:focus {
 
   .modal {
     top: 4vh;
+  }
+
+  .modal-body {
+    padding: 18px;
+  }
+
+  .settings-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-tablist {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .modal-footer {
+    position: static;
   }
 }
 

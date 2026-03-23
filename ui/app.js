@@ -27,6 +27,8 @@ const openSettingsButton = document.getElementById('open-settings');
 const closeSettingsButton = document.getElementById('close-settings');
 const settingsOverlay = document.getElementById('settings-overlay');
 const settingsModal = document.getElementById('settings-modal');
+const settingsTabButtons = Array.from(document.querySelectorAll('[data-settings-tab]'));
+const settingsPanels = Array.from(document.querySelectorAll('[data-settings-panel]'));
 
 const configForm = document.getElementById('config-form');
 const configStatus = document.getElementById('config-status');
@@ -63,6 +65,9 @@ let lastReport = null;
 let lastInboxSyncReport = null;
 let lastInboxSyncUrls = [];
 let activeResultFilter = 'all';
+let activeSettingsTab = '';
+
+const SETTINGS_TAB_STORAGE_KEY = 'xhs-ui-settings-tab';
 
 function resolveResultLink(item) {
   if (!item) return '';
@@ -180,13 +185,76 @@ function renderSummaryRow(config) {
   });
 }
 
+function resolveSettingsTabKey(candidate = '') {
+  const availableKeys = settingsTabButtons
+    .map((button) => String(button.dataset.settingsTab || '').trim())
+    .filter(Boolean);
+  if (availableKeys.length === 0) return '';
+  if (candidate && availableKeys.includes(candidate)) return candidate;
+  if (availableKeys.includes('basic')) return 'basic';
+  return availableKeys[0];
+}
+
+function readStoredSettingsTab() {
+  try {
+    return window?.localStorage?.getItem(SETTINGS_TAB_STORAGE_KEY) || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function persistSettingsTab(tabKey) {
+  try {
+    window?.localStorage?.setItem(SETTINGS_TAB_STORAGE_KEY, tabKey);
+  } catch (_) {
+    // 忽略无存储权限的环境
+  }
+}
+
+function setActiveSettingsTab(tabKey, options = {}) {
+  const nextKey = resolveSettingsTabKey(tabKey);
+  if (!nextKey) return;
+  const shouldPersist = options.persist !== false;
+  activeSettingsTab = nextKey;
+
+  settingsTabButtons.forEach((button) => {
+    const isActive = button.dataset.settingsTab === nextKey;
+    button.dataset.active = isActive ? 'true' : 'false';
+    button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    button.tabIndex = isActive ? 0 : -1;
+  });
+
+  settingsPanels.forEach((panel) => {
+    const isActive = panel.dataset.settingsPanel === nextKey;
+    panel.hidden = !isActive;
+    panel.dataset.active = isActive ? 'true' : 'false';
+  });
+
+  if (shouldPersist) {
+    persistSettingsTab(nextKey);
+  }
+}
+
+function initializeSettingsTabs() {
+  if (settingsTabButtons.length === 0 || settingsPanels.length === 0) return;
+  settingsTabButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      setActiveSettingsTab(button.dataset.settingsTab || '');
+    });
+  });
+  setActiveSettingsTab(readStoredSettingsTab() || activeSettingsTab || 'basic', { persist: false });
+}
+
 function openSettings() {
   if (helpers.openSettingsModal) {
     helpers.openSettingsModal({ overlay: settingsOverlay, modal: settingsModal });
-    return;
+  } else {
+    settingsOverlay.hidden = false;
+    settingsModal.hidden = false;
   }
-  settingsOverlay.hidden = false;
-  settingsModal.hidden = false;
+  if (!activeSettingsTab) {
+    setActiveSettingsTab('basic', { persist: false });
+  }
 }
 
 function closeSettings() {
@@ -1054,6 +1122,8 @@ document.addEventListener('click', (event) => {
 if (errorDismiss) {
   errorDismiss.addEventListener('click', () => clearErrorBanner());
 }
+
+initializeSettingsTabs();
 
 linksClear.addEventListener('click', () => {
   linksText.value = '';

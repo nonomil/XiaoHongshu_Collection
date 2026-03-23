@@ -188,145 +188,183 @@
       <button id="close-settings" class="icon-button" type="button" aria-label="关闭设置">×</button>
     </div>
     <form id="config-form" class="modal-body">
-      <div class="panel-section">
-        <h3>路径设置</h3>
-        <label class="field">
-          <span>链接保存输出目录</span>
-          <input id="path-links-output" type="text" placeholder="默认：output/单条笔记保存">
-        </label>
-        <label class="field">
-          <span>链接保存图片目录</span>
-          <input id="path-links-images" type="text" placeholder="默认：output/_images">
-        </label>
-        <label class="field">
-          <span>收藏导出输出目录</span>
-          <input id="path-collection-output" type="text" placeholder="默认：output/">
-        </label>
-        <label class="field">
-          <span>收藏原始数据路径</span>
-          <input id="path-collection-raw" type="text" placeholder="默认：data/raw_notes.json">
-        </label>
+      <section class="settings-intro" aria-label="设置说明">
+        <p class="settings-kicker">按场景分组</p>
+        <p>常用保存项默认放在第一组。先选左侧分组，再改具体字段，保存按钮会始终固定在底部，避免滚到底部才看见。</p>
+      </section>
+
+      <div class="settings-layout">
+        <div class="settings-tablist" role="tablist" aria-label="设置分组">
+          <button id="settings-tab-basic" class="settings-tab" data-settings-tab="basic" type="button" role="tab" aria-controls="settings-panel-basic">
+            <strong>基础保存</strong>
+            <span>路径、命名和最常改的保存规则</span>
+          </button>
+          <button id="settings-tab-browser" class="settings-tab" data-settings-tab="browser" type="button" role="tab" aria-controls="settings-panel-browser">
+            <strong>浏览器接入</strong>
+            <span>登录会话、当前 Chrome 接管与无头运行</span>
+          </button>
+          <button id="settings-tab-inbox" class="settings-tab" data-settings-tab="inbox" type="button" role="tab" aria-controls="settings-panel-inbox">
+            <strong>外部入口</strong>
+            <span>Pushbullet 与收件箱归档分类</span>
+          </button>
+          <button id="settings-tab-advanced" class="settings-tab" data-settings-tab="advanced" type="button" role="tab" aria-controls="settings-panel-advanced">
+            <strong>高级参数</strong>
+            <span>AI、OCR、超时和展示控制</span>
+          </button>
+        </div>
+
+        <div class="settings-panels">
+          <section id="settings-panel-basic" class="settings-panel" data-settings-panel="basic" role="tabpanel" aria-labelledby="settings-tab-basic">
+            <div class="panel-section">
+              <h3>路径设置</h3>
+              <label class="field">
+                <span>链接保存输出目录</span>
+                <input id="path-links-output" type="text" placeholder="默认：output/单条笔记保存">
+              </label>
+              <label class="field">
+                <span>链接保存图片目录</span>
+                <input id="path-links-images" type="text" placeholder="默认：output/_images">
+              </label>
+              <label class="field">
+                <span>收藏导出输出目录</span>
+                <input id="path-collection-output" type="text" placeholder="默认：output/">
+              </label>
+              <label class="field">
+                <span>收藏原始数据路径</span>
+                <input id="path-collection-raw" type="text" placeholder="默认：data/raw_notes.json">
+              </label>
+            </div>
+
+            <div class="panel-section">
+              <h3>命名规则</h3>
+              <label class="field">
+                <span>冲突处理策略</span>
+                <select id="naming-strategy">
+                  <option value="content-aware">正文一致覆盖，正文不同自动加后缀</option>
+                  <option value="overwrite">无条件覆盖</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>标题最长字符数</span>
+                <input id="naming-max-length" type="number" min="10" max="120" step="1" placeholder="默认 80">
+              </label>
+            </div>
+          </section>
+
+          <section id="settings-panel-browser" class="settings-panel" data-settings-panel="browser" role="tabpanel" aria-labelledby="settings-tab-browser" hidden>
+            <div class="panel-section">
+              <h3>浏览器接入</h3>
+              <label class="field">
+                <span>浏览器模式</span>
+                <select id="browser-mode">
+                  <option value="isolated">隔离调试浏览器（默认）</option>
+                  <option value="current-browser">复用当前 Chrome 146+ 会话（实验）</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>当前浏览器通道</span>
+                <select id="browser-channel">
+                  <option value="stable">stable</option>
+                  <option value="beta">beta</option>
+                  <option value="canary">canary</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>显式浏览器地址（可选）</span>
+                <input id="browser-url" type="text" placeholder="例如：http://127.0.0.1:9222">
+              </label>
+              <label class="toggle">
+                <input id="browser-headless" type="checkbox">
+                <span>后台无头运行（实验）</span>
+              </label>
+              <div class="button-row">
+                <button id="open-login-browser" class="button secondary" type="button">打开项目登录浏览器</button>
+              </div>
+              <p class="field-hint">首次请先打开项目登录浏览器并手动登录一次，项目会把登录态保存到独立 profile；后续在隔离调试浏览器模式下可勾选后台无头运行复用同一会话。</p>
+              <p class="field-hint">Chrome 146+ 的当前浏览器模式更适合单条保存、手动登录后继续抓取。它主要复用登录态，不会自动解决评论懒加载、账号风控或 300031“暂时无法浏览”。</p>
+            </div>
+          </section>
+
+          <section id="settings-panel-inbox" class="settings-panel" data-settings-panel="inbox" role="tabpanel" aria-labelledby="settings-tab-inbox" hidden>
+            <div class="panel-section">
+              <h3>外部入口设置</h3>
+              <label class="toggle">
+                <input id="pushbullet-enabled" type="checkbox">
+                <span>启用 Pushbullet</span>
+              </label>
+              <label class="field">
+                <span>Pushbullet Access Token</span>
+                <input id="pushbullet-token" type="password" autocomplete="new-password" placeholder="在 Pushbullet 账号设置中获取">
+              </label>
+              <label class="field">
+                <span>收件箱文件路径</span>
+                <input id="inbox-path" type="text" placeholder="默认：data/inbox_links.jsonl">
+              </label>
+            </div>
+
+            <div class="panel-section">
+              <h3>收件箱分类规则</h3>
+              <label class="field">
+                <span>分类规则 (JSON)</span>
+                <textarea id="inbox-categories" rows="8" placeholder='{"AI":["GPT"],"理财":["ETF"]}'></textarea>
+              </label>
+            </div>
+          </section>
+
+          <section id="settings-panel-advanced" class="settings-panel" data-settings-panel="advanced" role="tabpanel" aria-labelledby="settings-tab-advanced" hidden>
+            <div class="panel-section">
+              <h3>运行参数</h3>
+              <div class="toggle-row">
+                <label class="toggle">
+                  <input id="runtime-auto-classify" type="checkbox">
+                  <span>保存链接时自动分类</span>
+                </label>
+                <label class="toggle">
+                  <input id="runtime-ai" type="checkbox">
+                  <span>AI 总结与标签</span>
+                </label>
+                <label class="toggle">
+                  <input id="runtime-vision" type="checkbox">
+                  <span>Vision OCR</span>
+                </label>
+                <label class="toggle">
+                  <input id="runtime-ocr-fallback" type="checkbox">
+                  <span>OCR 兜底</span>
+                </label>
+              </div>
+              <label class="field">
+                <span>OpenRouter 超时 (ms)</span>
+                <input id="runtime-openrouter-timeout" type="number" min="1000" step="1000" placeholder="默认 30000">
+              </label>
+              <label class="field">
+                <span>Vision OCR 超时 (ms)</span>
+                <input id="runtime-vision-timeout" type="number" min="1000" step="1000" placeholder="默认 60000">
+              </label>
+              <label class="field">
+                <span>每条笔记最多 OCR 图片数</span>
+                <input id="runtime-max-images" type="number" min="1" max="50" step="1" placeholder="默认 12">
+              </label>
+              <p class="field-hint">开启后，普通链接保存会优先根据标题、正文摘要和标签自动归到 AI、工具等主题目录；关闭后保持来源目录，如“微信公众号文章”“知乎文章”。</p>
+            </div>
+
+            <div class="panel-section">
+              <h3>展示</h3>
+              <label class="toggle">
+                <input id="ui-show-raw" type="checkbox">
+                <span>显示原始报告 JSON</span>
+              </label>
+            </div>
+          </section>
+        </div>
       </div>
 
-      <div class="panel-section">
-        <h3>浏览器接入</h3>
-        <label class="field">
-          <span>浏览器模式</span>
-          <select id="browser-mode">
-            <option value="isolated">隔离调试浏览器（默认）</option>
-            <option value="current-browser">复用当前 Chrome 146+ 会话（实验）</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>当前浏览器通道</span>
-          <select id="browser-channel">
-            <option value="stable">stable</option>
-            <option value="beta">beta</option>
-            <option value="canary">canary</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>显式浏览器地址（可选）</span>
-          <input id="browser-url" type="text" placeholder="例如：http://127.0.0.1:9222">
-        </label>
-        <label class="toggle">
-          <input id="browser-headless" type="checkbox">
-          <span>后台无头运行（实验）</span>
-        </label>
+      <div class="modal-footer">
         <div class="button-row">
-          <button id="open-login-browser" class="button secondary" type="button">打开项目登录浏览器</button>
+          <button id="config-save" class="button" type="submit">保存设置</button>
+          <button id="config-reload" class="button ghost" type="button">重新加载</button>
         </div>
-        <p class="field-hint">首次请先打开项目登录浏览器并手动登录一次，项目会把登录态保存到独立 profile；后续在隔离调试浏览器模式下可勾选后台无头运行复用同一会话。</p>
-        <p class="field-hint">Chrome 146+ 的当前浏览器模式更适合单条保存、手动登录后继续抓取。它主要复用登录态，不会自动解决评论懒加载、账号风控或 300031“暂时无法浏览”。</p>
+        <p id="config-status" class="status-text">配置未保存</p>
       </div>
-
-      <div class="panel-section">
-        <h3>命名规则</h3>
-        <label class="field">
-          <span>冲突处理策略</span>
-          <select id="naming-strategy">
-            <option value="content-aware">正文一致覆盖，正文不同自动加后缀</option>
-            <option value="overwrite">无条件覆盖</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>标题最长字符数</span>
-          <input id="naming-max-length" type="number" min="10" max="120" step="1" placeholder="默认 80">
-        </label>
-      </div>
-
-      <div class="panel-section">
-        <h3>运行参数</h3>
-        <div class="toggle-row">
-          <label class="toggle">
-            <input id="runtime-auto-classify" type="checkbox">
-            <span>保存链接时自动分类</span>
-          </label>
-          <label class="toggle">
-            <input id="runtime-ai" type="checkbox">
-            <span>AI 总结与标签</span>
-          </label>
-          <label class="toggle">
-            <input id="runtime-vision" type="checkbox">
-            <span>Vision OCR</span>
-          </label>
-          <label class="toggle">
-            <input id="runtime-ocr-fallback" type="checkbox">
-            <span>OCR 兜底</span>
-          </label>
-        </div>
-        <label class="field">
-          <span>OpenRouter 超时 (ms)</span>
-          <input id="runtime-openrouter-timeout" type="number" min="1000" step="1000" placeholder="默认 30000">
-        </label>
-        <label class="field">
-          <span>Vision OCR 超时 (ms)</span>
-          <input id="runtime-vision-timeout" type="number" min="1000" step="1000" placeholder="默认 60000">
-        </label>
-        <label class="field">
-          <span>每条笔记最多 OCR 图片数</span>
-          <input id="runtime-max-images" type="number" min="1" max="50" step="1" placeholder="默认 12">
-        </label>
-        <p class="field-hint">开启后，普通链接保存会优先根据标题、正文摘要和标签自动归到 AI、工具等主题目录；关闭后保持来源目录，如“微信公众号文章”“知乎文章”。</p>
-      </div>
-
-      <div class="panel-section">
-        <h3>外部入口设置</h3>
-        <label class="toggle">
-          <input id="pushbullet-enabled" type="checkbox">
-          <span>启用 Pushbullet</span>
-        </label>
-        <label class="field">
-          <span>Pushbullet Access Token</span>
-          <input id="pushbullet-token" type="password" autocomplete="new-password" placeholder="在 Pushbullet 账号设置中获取">
-        </label>
-        <label class="field">
-          <span>收件箱文件路径</span>
-          <input id="inbox-path" type="text" placeholder="默认：data/inbox_links.jsonl">
-        </label>
-      </div>
-
-      <div class="panel-section">
-        <h3>收件箱分类规则</h3>
-        <label class="field">
-          <span>分类规则 (JSON)</span>
-          <textarea id="inbox-categories" rows="8" placeholder='{"AI":["GPT"],"理财":["ETF"]}'></textarea>
-        </label>
-      </div>
-
-      <div class="panel-section">
-        <h3>展示</h3>
-        <label class="toggle">
-          <input id="ui-show-raw" type="checkbox">
-          <span>显示原始报告 JSON</span>
-        </label>
-      </div>
-
-      <div class="button-row">
-        <button id="config-save" class="button" type="submit">保存设置</button>
-        <button id="config-reload" class="button ghost" type="button">重新加载</button>
-      </div>
-      <p id="config-status" class="status-text">配置未保存</p>
     </form>
   </div>
 

@@ -56,3 +56,16 @@ test('styles.css adds a compact hero panel and summary shelf', () => {
   assert.match(css, /\.summary-row\s*\{[\s\S]*padding:/);
   assert.match(css, /\.summary-chip\s*\{[\s\S]*min-height:/);
 });
+
+test('styles.css contains grouped settings tab layout styles', () => {
+  assert.match(css, /\.settings-layout/);
+  assert.match(css, /\.settings-tablist/);
+  assert.match(css, /\.settings-tab\b/);
+  assert.match(css, /\.settings-tab\[data-active=['"]true['"]\]/);
+  assert.match(css, /\.settings-panel\[hidden\]/);
+  assert.match(css, /\.modal-footer/);
+});
+
+test('styles.css collapses settings tab layout on mobile', () => {
+  assert.match(css, /@media\s*\(max-width:\s*980px\)[\s\S]*\.settings-layout\s*\{\s*grid-template-columns:\s*1fr;/);
+});
