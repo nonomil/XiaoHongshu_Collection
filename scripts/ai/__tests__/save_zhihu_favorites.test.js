@@ -118,7 +118,12 @@ test('run collects favorite urls and forwards them into saveLinksText', async ()
 
 test('run rejects when cookie is missing', async () => {
   await assert.rejects(
-    () => run(['https://www.zhihu.com/collection/123456789']),
+    () => run(
+      ['https://www.zhihu.com/collection/123456789'],
+      {
+        resolveCookieHeaderFromBrowserFn: async () => ({ cookie: '' })
+      }
+    ),
     /--cookie|ZHIHU_COOKIE|Chrome session/i
   );
 });

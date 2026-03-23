@@ -105,6 +105,7 @@ async function saveInboxUrls({
       const summary = await saveLinks(url, {
         source: 'inbox',
         outputRoot: INBOX_OUTPUT_ROOT,
+        conflictStrategy: 'content-aware',
         mirrorTargets: [
           {
             outputRoot: INBOX_OUTPUT_ROOT,

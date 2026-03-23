@@ -88,6 +88,7 @@ test('saveInboxUrls injects inbox output root and classifier', async () => {
   assert.ok(seenOptions);
   assert.match(seenOptions.outputRoot, /收件箱同步/);
   assert.equal(typeof seenOptions.collectionResolver, 'function');
+  assert.equal(seenOptions.conflictStrategy, 'content-aware');
   assert.deepEqual(seenOptions.mirrorTargets, [
     {
       outputRoot: seenOptions.outputRoot,
