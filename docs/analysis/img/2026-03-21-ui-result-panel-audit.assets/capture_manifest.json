@@ -1,0 +1,122 @@
+[
+  {
+    "file": "before-desktop-home.png",
+    "url": "http://127.0.0.1:3030/",
+    "viewport": {
+      "width": 1440,
+      "height": 1400
+    },
+    "state": "before-desktop-home",
+    "note": "Initial desktop home screen before the result-panel audit changes."
+  },
+  {
+    "file": "before-mobile-home.png",
+    "url": "http://127.0.0.1:3030/",
+    "viewport": {
+      "width": 430,
+      "height": 1300
+    },
+    "state": "before-mobile-home",
+    "note": "Initial mobile home screen before the result area was promoted."
+  },
+  {
+    "file": "after-desktop-home.png",
+    "url": "http://127.0.0.1:3030/",
+    "viewport": {
+      "width": 1440,
+      "height": 1400
+    },
+    "state": "after-desktop-home",
+    "note": "Desktop home screen after the idle empty-state copy was added."
+  },
+  {
+    "file": "after-mobile-home.png",
+    "url": "http://127.0.0.1:3030/",
+    "viewport": {
+      "width": 430,
+      "height": 1300
+    },
+    "state": "after-mobile-home",
+    "note": "Mobile home screen after the first empty-state pass."
+  },
+  {
+    "file": "after-desktop-mobile-priority.png",
+    "url": "http://127.0.0.1:3030/",
+    "viewport": {
+      "width": 1440,
+      "height": 1400
+    },
+    "state": "after-desktop-mobile-priority",
+    "note": "Desktop view stayed stable while the mobile result priority change landed."
+  },
+  {
+    "file": "after-mobile-result-priority.png",
+    "url": "http://127.0.0.1:3030/",
+    "viewport": {
+      "width": 430,
+      "height": 1300
+    },
+    "state": "after-mobile-result-priority",
+    "note": "Mobile view after moving the result card before the entry stack."
+  },
+  {
+    "file": "after-desktop-action-hierarchy.png",
+    "url": "file:///G:/UserCode/XiaoHongshu_Collection/tmp/ui-preview/result-group-actions-preview.html",
+    "viewport": {
+      "width": 1440,
+      "height": 1200
+    },
+    "state": "after-desktop-action-hierarchy",
+    "note": "Desktop preview showing the primary action plus more-menu hierarchy."
+  },
+  {
+    "file": "after-mobile-action-hierarchy.png",
+    "url": "file:///G:/UserCode/XiaoHongshu_Collection/tmp/ui-preview/result-group-actions-preview.html",
+    "viewport": {
+      "width": 430,
+      "height": 1300
+    },
+    "state": "after-mobile-action-hierarchy",
+    "note": "Mobile preview showing the primary action plus more-menu hierarchy."
+  },
+  {
+    "file": "after-desktop-warning-visibility.png",
+    "url": "file:///G:/UserCode/XiaoHongshu_Collection/docs/analysis/img/2026-03-21-ui-result-panel-audit.assets/preview/result-warning-visibility-preview.html",
+    "viewport": {
+      "width": 1440,
+      "height": 1200
+    },
+    "state": "after-desktop-warning-visibility",
+    "note": "Desktop preview with the warning filter active and the warning badge visible in the group header."
+  },
+  {
+    "file": "after-mobile-warning-visibility.png",
+    "url": "file:///G:/UserCode/XiaoHongshu_Collection/docs/analysis/img/2026-03-21-ui-result-panel-audit.assets/preview/result-warning-visibility-preview.html",
+    "viewport": {
+      "width": 430,
+      "height": 1300
+    },
+    "state": "after-mobile-warning-visibility",
+    "note": "Mobile preview with the warning filter active and only the warning-bearing group visible."
+  },
+  {
+    "file": "after-desktop-inbox-flow-full.png",
+    "url": "http://127.0.0.1:3030/",
+    "viewport": {
+      "width": 1440,
+      "height": 1400
+    },
+    "state": "after-desktop-inbox-flow-full",
+    "note": "Desktop live UI after consolidating inbox sync/save flow and removing the stretched idle result card."
+  },
+  {
+    "file": "after-mobile-inbox-flow-full.png",
+    "url": "http://127.0.0.1:3030/",
+    "viewport": {
+      "width": 430,
+      "height": 1300
+    },
+    "state": "after-mobile-inbox-flow-full",
+    "note": "Mobile live UI after consolidating inbox sync/save flow and adding the recent sync range selector."
+  }
+]

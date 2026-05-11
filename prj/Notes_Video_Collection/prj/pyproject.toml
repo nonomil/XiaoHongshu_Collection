@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video-summary-cli"
+version = "0.3.0"
+description = "CLI for turning Bilibili and YouTube videos into Markdown summaries."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "yt-dlp>=2024.12.13",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+asr = [
+  "faster-whisper>=1.2.0",
+]
+media = [
+  "opencv-python-headless>=4.10.0",
+]
+web = [
+  "fastapi>=0.116.0",
+  "uvicorn>=0.35.0",
+  "jinja2>=3.1.4",
+  "httpx>=0.28.0",
+  "python-multipart>=0.0.20",
+]
+
+[project.scripts]
+video-summary = "video_summary_cli.cli:main"
+video-summary-web = "video_summary_cli.web_app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+video_summary_cli = [
+  "templates/*.html",
+  "web/templates/*.html",
+  "web/static/*.css",
+  "web/static/*.js",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,125 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background:
+    radial-gradient(circle at top left, #ffe8cc 0, transparent 42%),
+    linear-gradient(180deg, #fffdf7 0%, #f4efe3 100%);
+  color: #1f1a12;
+}
+
+.popup-shell {
+  width: 360px;
+  padding: 18px;
+}
+
+.hero {
+  margin-bottom: 16px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8a5b24;
+}
+
+.hero h1 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.subcopy {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #5f5140;
+}
+
+.page-card {
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid #eadcc5;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.label {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: #8a5b24;
+}
+
+.page-card h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.page-url {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #6d6357;
+  word-break: break-all;
+}
+
+.actions {
+  display: grid;
+  gap: 10px;
+}
+
+button {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 120ms ease, opacity 120ms ease;
+  background: #bf5b04;
+  color: #fffaf2;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+
+.secondary {
+  background: #f0d6aa;
+  color: #5b3608;
+}
+
+.ghost {
+  background: transparent;
+  border: 1px solid #d9c5a2;
+  color: #5b3608;
+}
+
+.status {
+  margin-top: 14px;
+  min-height: 20px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #5f5140;
+}
+
+.status.success {
+  color: #1d6b3b;
+}
+
+.status.error {
+  color: #a23421;
+}

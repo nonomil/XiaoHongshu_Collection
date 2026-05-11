@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title }}</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap");
+
+    :root {
+      --bg: #f3eadf;
+      --paper: rgba(255, 251, 244, 0.88);
+      --ink: #1c2b29;
+      --muted: #556660;
+      --line: rgba(28, 43, 41, 0.12);
+      --accent: #0f766e;
+      --accent-strong: #155e75;
+      --warn: #b45309;
+      --danger: #b42318;
+      --shadow: 0 22px 72px rgba(28, 43, 41, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(21, 94, 117, 0.18), transparent 24%),
+        radial-gradient(circle at top right, rgba(180, 83, 9, 0.18), transparent 22%),
+        linear-gradient(180deg, #f4ede4 0%, #ece0d0 100%);
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.16) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.16) 1px, transparent 1px);
+      background-size: 34px 34px;
+      mask-image: linear-gradient(180deg, rgba(0,0,0,0.56), transparent 90%);
+      opacity: 0.22;
+    }
+
+    .shell {
+      width: min(1360px, calc(100vw - 34px));
+      margin: 18px auto 40px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero,
+    .grid {
+      display: grid;
+      gap: 22px;
+    }
+
+    .hero {
+      grid-template-columns: 1.45fr 0.9fr;
+      margin-bottom: 22px;
+    }
+
+    .grid {
+      grid-template-columns: minmax(0, 1.06fr) minmax(360px, 0.94fr);
+      align-items: start;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: var(--paper);
+      backdrop-filter: blur(14px);
+      box-shadow: var(--shadow);
+      padding: 24px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(15, 118, 110, 0.1);
+      color: var(--accent-strong);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3 {
+      margin: 0;
+      font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+      letter-spacing: -0.03em;
+    }
+
+    h1 {
+      margin-top: 16px;
+      font-size: clamp(34px, 4vw, 58px);
+      line-height: 0.96;
+    }
+
+    h2 {
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+
+    .copy,
+    .subcopy,
+    .hint,
+    .item-meta {
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    .copy { margin: 16px 0 0; max-width: 58ch; }
+    .subcopy { margin: 0 0 18px; font-size: 15px; }
+    .hint { font-size: 12px; }
+
+    .metric-row,
+    .tag-row,
+    .actions,
+    .item-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .metric-row { margin-top: 22px; }
+    .metric {
+      flex: 1 1 180px;
+      padding: 16px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(28, 43, 41, 0.08);
+    }
+    .metric strong {
+      display: block;
+      font-size: 24px;
+      font-family: "Space Grotesk", sans-serif;
+    }
+
+    .section + .section { margin-top: 20px; }
+    .fields,
+    .job-kpis {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .field,
+    .toggle {
+      display: grid;
+      gap: 8px;
+    }
+
+    .field.full { grid-column: 1 / -1; }
+    .toggle {
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.66);
+      border: 1px solid rgba(28, 43, 41, 0.08);
+    }
+
+    label {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    input,
+    select,
+    textarea,
+    button {
+      font: inherit;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      padding: 13px 14px;
+      border: 1px solid rgba(28, 43, 41, 0.12);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.82);
+      color: var(--ink);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      outline: none;
+      border-color: rgba(15, 118, 110, 0.52);
+      box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.12);
+    }
+
+    textarea {
+      min-height: 220px;
+      resize: vertical;
+    }
+
+    .password {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+    }
+
+    button {
+      border: none;
+      border-radius: 14px;
+      padding: 13px 18px;
+      cursor: pointer;
+      font-weight: 700;
+      transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+    button:hover { transform: translateY(-1px); }
+    .primary {
+      color: #fff;
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      box-shadow: 0 16px 34px rgba(21, 94, 117, 0.24);
+    }
+    .secondary {
+      color: var(--ink);
+      background: rgba(255, 255, 255, 0.84);
+      border: 1px solid rgba(28, 43, 41, 0.12);
+    }
+    .ghost {
+      color: var(--accent-strong);
+      background: rgba(15, 118, 110, 0.08);
+    }
+
+    .switch {
+      position: relative;
+      width: 56px;
+      height: 32px;
+      display: inline-block;
+    }
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+      position: absolute;
+    }
+    .slider {
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      background: rgba(28, 43, 41, 0.22);
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+    .slider::before {
+      content: "";
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      background: #fff;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.2);
+      transition: transform 0.2s ease;
+    }
+    .switch input:checked + .slider {
+      background: linear-gradient(120deg, var(--accent), var(--accent-strong));
+    }
+    .switch input:checked + .slider::before {
+      transform: translateX(24px);
+    }
+
+    .banner {
+      display: none;
+      margin-bottom: 16px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid rgba(28, 43, 41, 0.1);
+      line-height: 1.55;
+    }
+    .banner[data-tone] { display: block; }
+    .banner[data-tone="success"] { background: rgba(15, 118, 110, 0.08); }
+    .banner[data-tone="error"] { background: rgba(180, 35, 24, 0.08); border-color: rgba(180, 35, 24, 0.16); }
+    .banner[data-tone="info"] { background: rgba(21, 94, 117, 0.08); }
+
+    .job-head,
+    .job-item,
+    .kpi {
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(28, 43, 41, 0.08);
+    }
+
+    .job-kpis { margin: 14px 0; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .kpi span {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .kpi strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 24px;
+      font-family: "Space Grotesk", sans-serif;
+    }
+
+    .job-items { display: grid; gap: 12px; }
+    .item-head { align-items: center; justify-content: space-between; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .chip[data-state="queued"] { background: rgba(21, 94, 117, 0.1); color: var(--accent-strong); }
+    .chip[data-state="running"] { background: rgba(180, 83, 9, 0.12); color: var(--warn); }
+    .chip[data-state="completed"] { background: rgba(15, 118, 110, 0.12); color: var(--accent); }
+    .chip[data-state="failed"] { background: rgba(180, 35, 24, 0.12); color: var(--danger); }
+
+    .empty {
+      padding: 18px;
+      border-radius: 18px;
+      border: 1px dashed rgba(28, 43, 41, 0.14);
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.58);
+    }
+
+    @media (max-width: 1120px) {
+      .hero,
+      .grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 760px) {
+      .shell { width: min(100vw - 20px, 100%); margin: 10px auto 20px; }
+      .card { padding: 18px; }
+      .fields,
+      .job-kpis,
+      .metric-row,
+      .password { grid-template-columns: 1fr; display: grid; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition: none !important; animation: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <article class="card">
+        <span class="badge">Local Batch Console</span>
+        <h1>视频总结工作台</h1>
+        <p class="copy">把多个视频链接排进一条批处理流水线里，统一生成 Markdown 教程笔记、章节截图和版本留痕。OpenAI 兼容模式只增强摘要层，主抓取与截图链路仍保持本地可回退。</p>
+        <div class="metric-row">
+          <div class="metric"><strong>多链接</strong><span>一次粘贴整批视频地址</span></div>
+          <div class="metric"><strong>共享目录</strong><span>Markdown 平铺，图片集中到 `img/`</span></div>
+          <div class="metric"><strong>可回退</strong><span>远程摘要失败自动退回本地规则法</span></div>
+        </div>
+      </article>
+      <aside class="card">
+        <h2>批处理产物布局</h2>
+        <p class="subcopy">每个视频会生成一个与标题同名的 Markdown 文件，图片统一存到同级 `img/&lt;文件名&gt;.assets/` 目录里。更详细的转写、元数据和版本快照会放在隐藏的 `.runs/` 子目录。</p>
+        <div class="tag-row">
+          <span class="badge">Bilibili / YouTube</span>
+          <span class="badge">yt-dlp 兼容站点</span>
+          <span class="badge">Tutorial Note</span>
+          <span class="badge">OpenAI Compatible</span>
+        </div>
+      </aside>
+    </section>
+
+    <section class="grid">
+      <div>
+        <section class="card section">
+          <h2>批量输入</h2>
+          <p class="subcopy">一行一个链接，可以混合 B 站、YouTube，或任何 `yt-dlp` 能识别的地址。页面会自动去重并按原顺序排队。</p>
+          <div id="status_banner" class="banner"></div>
+          <div class="field full">
+            <label for="urls_text">视频链接列表</label>
+            <textarea id="urls_text" placeholder="https://b23.tv/1SzaT3c&#10;https://www.youtube.com/watch?v=..."></textarea>
+            <div class="hint">建议直接粘贴一批链接，系统会自动清理空行与重复链接。</div>
+          </div>
+        </section>
+
+        <section class="card section">
+          <h2>处理参数</h2>
+          <p class="subcopy">默认参数偏向教程型视频，目标是让图文笔记完整可读，而不是只生成一小段摘要。</p>
+          <div class="fields">
+            <div class="field full">
+              <label for="output_dir">输出目录</label>
+              <input id="output_dir" type="text" placeholder="G:\UserCode\视频总结文档\docs\output\web-batch">
+              <div class="hint">批量完成后，Markdown 会直接落在这个目录，图片统一写到同级 `img/`。</div>
+            </div>
+            <div class="field full">
+              <label for="cookies_path">Cookies 文件路径</label>
+              <input id="cookies_path" type="text" placeholder="ref/Data/www.bilibili.com_cookies.txt">
+            </div>
+            <div class="field">
+              <label for="transcriber">转写器</label>
+              <select id="transcriber">
+                <option value="auto">auto</option>
+                <option value="faster-whisper">faster-whisper</option>
+                <option value="none">none</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="whisper_model">Whisper 模型</label>
+              <input id="whisper_model" type="text" placeholder="tiny">
+            </div>
+            <div class="field">
+              <label for="screenshot_mode">截图模式</label>
+              <select id="screenshot_mode">
+                <option value="smart">smart</option>
+                <option value="quick">quick</option>
+                <option value="none">none</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="screenshot_count">截图数量</label>
+              <input id="screenshot_count" type="number" min="0" step="1">
+            </div>
+            <div class="field">
+              <label for="summary_style">文档风格</label>
+              <select id="summary_style">
+                <option value="tutorial-note">tutorial-note</option>
+                <option value="default">default</option>
+                <option value="concise">concise</option>
+                <option value="action-note">action-note</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section class="card section">
+          <h2>摘要引擎</h2>
+          <p class="subcopy">默认使用本地抽取式摘要，最稳、最容易复现；开启 OpenAI 兼容模式后，会优先提升 `AI 总结 / 关键信息 / 要点` 的文本质量，失败自动回退。</p>
+          <div class="toggle">
+            <div>
+              <label for="openai_enabled">启用 OpenAI 兼容模式</label>
+              <div class="hint">只增强摘要层，不替换抓取、转写和截图主链路。</div>
+            </div>
+            <label class="switch">
+              <input id="openai_enabled" type="checkbox">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="fields" style="margin-top: 16px;">
+            <div class="field full">
+              <label for="openai_base_url">Base URL</label>
+              <input id="openai_base_url" type="text" placeholder="https://api.openai.com/v1">
+            </div>
+            <div class="field">
+              <label for="openai_model">模型名</label>
+              <input id="openai_model" type="text" placeholder="gpt-4.1-mini">
+            </div>
+            <div class="field">
+              <label for="openai_temperature">Temperature</label>
+              <input id="openai_temperature" type="number" min="0" max="2" step="0.1">
+            </div>
+            <div class="field full">
+              <label for="openai_api_key">API Key</label>
+              <div class="password">
+                <input id="openai_api_key" type="password" placeholder="sk-...">
+                <button id="toggle_api_key" class="ghost" type="button">显示 / 隐藏</button>
+              </div>
+            </div>
+          </div>
+          <div class="actions" style="margin-top: 16px;">
+            <button id="save_config" class="secondary" type="button">保存配置</button>
+            <button id="start_batch" class="primary" type="button">开始批量生成</button>
+          </div>
+        </section>
+      </div>
+
+      <aside class="card">
+        <h2>任务看板</h2>
+        <p class="subcopy">这里会实时显示批量任务状态、失败原因和产物路径。任务结束后，你可以直接去输出目录检查 Markdown 与 `img` 子目录。</p>
+        <div id="job_head" class="job-head">
+          <strong>当前暂无运行中的批任务</strong>
+          <div class="hint">保存配置后点击“开始批量生成”即可创建队列。</div>
+        </div>
+        <div class="job-kpis">
+          <div class="kpi"><span>总视频数</span><strong id="kpi_total">0</strong></div>
+          <div class="kpi"><span>已完成</span><strong id="kpi_completed">0</strong></div>
+          <div class="kpi"><span>失败</span><strong id="kpi_failed">0</strong></div>
+        </div>
+        <div id="job_items" class="job-items">
+          <div class="empty">任务开始后，这里会按视频逐条显示队列状态、Markdown 路径和结构化运行目录。</div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const ids = {
+      urls_text: document.getElementById("urls_text"),
+      output_dir: document.getElementById("output_dir"),
+      cookies_path: document.getElementById("cookies_path"),
+      transcriber: document.getElementById("transcriber"),
+      whisper_model: document.getElementById("whisper_model"),
+      screenshot_mode: document.getElementById("screenshot_mode"),
+      screenshot_count: document.getElementById("screenshot_count"),
+      summary_style: document.getElementById("summary_style"),
+      openai_enabled: document.getElementById("openai_enabled"),
+      openai_base_url: document.getElementById("openai_base_url"),
+      openai_api_key: document.getElementById("openai_api_key"),
+      openai_model: document.getElementById("openai_model"),
+      openai_temperature: document.getElementById("openai_temperature"),
+      save_config: document.getElementById("save_config"),
+      start_batch: document.getElementById("start_batch"),
+      toggle_api_key: document.getElementById("toggle_api_key"),
+      status_banner: document.getElementById("status_banner"),
+      job_head: document.getElementById("job_head"),
+      job_items: document.getElementById("job_items"),
+      kpi_total: document.getElementById("kpi_total"),
+      kpi_completed: document.getElementById("kpi_completed"),
+      kpi_failed: document.getElementById("kpi_failed"),
+    };
+
+    let current_job_id = "";
+    let poll_timer = null;
+
+    function show_banner(message, tone = "info") {
+      ids.status_banner.dataset.tone = tone;
+      ids.status_banner.textContent = message;
+    }
+
+    function fill_form(settings) {
+      ids.output_dir.value = settings.output_dir || "";
+      ids.cookies_path.value = settings.cookies_path || "";
+      ids.transcriber.value = settings.transcriber || "auto";
+      ids.whisper_model.value = settings.whisper_model || "tiny";
+      ids.screenshot_mode.value = settings.screenshot_mode || "smart";
+      ids.screenshot_count.value = String(settings.screenshot_count ?? 10);
+      ids.summary_style.value = settings.summary_style || "tutorial-note";
+      ids.openai_enabled.checked = Boolean(settings.openai?.enabled);
+      ids.openai_base_url.value = settings.openai?.base_url || "";
+      ids.openai_api_key.value = settings.openai?.api_key || "";
+      ids.openai_model.value = settings.openai?.model || "";
+      ids.openai_temperature.value = String(settings.openai?.temperature ?? 0.2);
+    }
+
+    function collect_settings() {
+      return {
+        output_dir: ids.output_dir.value.trim(),
+        cookies_path: ids.cookies_path.value.trim(),
+        transcriber: ids.transcriber.value,
+        whisper_model: ids.whisper_model.value.trim() || "tiny",
+        screenshot_mode: ids.screenshot_mode.value,
+        screenshot_count: Number(ids.screenshot_count.value || 0),
+        summary_style: ids.summary_style.value,
+        openai: {
+          enabled: ids.openai_enabled.checked,
+          base_url: ids.openai_base_url.value.trim(),
+          api_key: ids.openai_api_key.value,
+          model: ids.openai_model.value.trim(),
+          temperature: Number(ids.openai_temperature.value || 0.2),
+        },
+      };
+    }
+
+    function render_job(job) {
+      ids.kpi_total.textContent = String(job.total_count || 0);
+      ids.kpi_completed.textContent = String(job.completed_count || 0);
+      ids.kpi_failed.textContent = String(job.failed_count || 0);
+      ids.job_head.innerHTML = `
+        <strong>任务状态：${job.status}</strong>
+        <div class="hint">输出目录：${job.output_dir || "待分配"}</div>
+        <div class="hint">创建时间：${job.created_at || "-"}</div>
+        <div class="hint">开始时间：${job.started_at || "-"}</div>
+        <div class="hint">结束时间：${job.finished_at || "-"}</div>
+        ${job.error_message ? `<div class="item-meta" style="color: var(--danger);">任务错误：${job.error_message}</div>` : ""}
+      `;
+
+      if (!job.items || job.items.length === 0) {
+        ids.job_items.innerHTML = `<div class="empty">当前任务还没有生成任何子项。</div>`;
+        return;
+      }
+
+      ids.job_items.innerHTML = job.items.map((item) => `
+        <article class="job-item">
+          <div class="item-head">
+            <div>
+              <strong>${item.title || item.url}</strong>
+              <div class="item-meta">${item.url}</div>
+            </div>
+            <span class="chip" data-state="${item.status}">${item.status}</span>
+          </div>
+          ${item.summary_markdown_path ? `<div class="item-meta">Markdown：${item.summary_markdown_path}</div>` : ""}
+          ${item.artifacts_directory ? `<div class="item-meta">结构化产物：${item.artifacts_directory}</div>` : ""}
+          ${item.error_message ? `<div class="item-meta" style="color: var(--danger);">失败原因：${item.error_message}</div>` : ""}
+        </article>
+      `).join("");
+    }
+
+    async function load_config() {
+      const response = await fetch("/api/config");
+      if (!response.ok) throw new Error("加载默认配置失败。");
+      fill_form(await response.json());
+    }
+
+    async function save_config() {
+      const response = await fetch("/api/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(collect_settings()),
+      });
+      if (!response.ok) throw new Error("保存配置失败。");
+      fill_form(await response.json());
+      show_banner("配置已保存，后续重新打开页面会继续沿用这组参数。", "success");
+    }
+
+    async function start_batch() {
+      const response = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls_text: ids.urls_text.value, settings: collect_settings() }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        show_banner(payload.detail || "创建任务失败。", "error");
+        return;
+      }
+
+      current_job_id = payload.job_id;
+      render_job(payload);
+      show_banner("批量任务已创建，右侧看板会持续刷新状态。", "info");
+      if (poll_timer) clearInterval(poll_timer);
+      poll_timer = setInterval(refresh_job, 1500);
+    }
+
+    async function refresh_job() {
+      if (!current_job_id) return;
+      const response = await fetch(`/api/jobs/${current_job_id}`);
+      if (!response.ok) {
+        show_banner("任务状态刷新失败。", "error");
+        clearInterval(poll_timer);
+        poll_timer = null;
+        return;
+      }
+      const payload = await response.json();
+      render_job(payload);
+      if (payload.status === "completed") {
+        show_banner("批量任务已结束，可以直接去输出目录检查 Markdown 与 img 子目录。", "success");
+        clearInterval(poll_timer);
+        poll_timer = null;
+      } else if (payload.status === "failed") {
+        show_banner(payload.error_message || "批量任务执行失败。", "error");
+        clearInterval(poll_timer);
+        poll_timer = null;
+      }
+    }
+
+    ids.save_config.addEventListener("click", () => save_config().catch((error) => show_banner(error.message, "error")));
+    ids.start_batch.addEventListener("click", () => start_batch().catch((error) => show_banner(error.message, "error")));
+    ids.toggle_api_key.addEventListener("click", () => {
+      ids.openai_api_key.type = ids.openai_api_key.type === "password" ? "text" : "password";
+    });
+
+    load_config().catch((error) => show_banner(error.message, "error"));
+  </script>
+</body>
+</html>

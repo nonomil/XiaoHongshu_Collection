@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "apiKey": "YOUR_OPENROUTER_API_KEY",
+  "model": "openrouter/free",
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "timeoutMs": 30000
+}

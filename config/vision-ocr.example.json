@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "provider": "openai-compatible",
+  "baseUrl": "https://YOUR-API-GATEWAY/v1",
+  "apiKey": "YOUR_API_KEY",
+  "model": "gpt-4.1-mini",
+  "timeoutMs": 60000,
+  "maxImagesPerNote": 20,
+  "prompt": "你是一个 OCR 与信息提取助手。请忠实识别图片中的全部可读中文、英文、数字和列表结构，尽量保留原有段落、标题、项目符号和顺序。不要总结，不要改写，不要补充图片里没有的信息，只输出识别后的纯文本。",
+  "imageInputMode": "url",
+  "fallbackToTesseract": true
+}

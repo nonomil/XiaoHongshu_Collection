@@ -1,0 +1,119 @@
+{
+  "report": "2026-03-24-left-sidebar-workbench-audit",
+  "capturedAt": "2026-03-24",
+  "baseUrl": "http://127.0.0.1:3031/",
+  "items": [
+    {
+      "file": "desktop-home.png",
+      "url": "http://127.0.0.1:3031/",
+      "viewport": {
+        "width": 1440,
+        "height": 1400
+      },
+      "state": "初版桌面首页",
+      "notes": "左导航已存在，但中区仍偏卡片化，标题断行明显。",
+      "highlights": [
+        "工作台导航",
+        "当前收藏一键导出",
+        "执行结果"
+      ]
+    },
+    {
+      "file": "settings-modal.png",
+      "url": "http://127.0.0.1:3031/",
+      "viewport": {
+        "width": 1440,
+        "height": 1400
+      },
+      "state": "初版设置弹层",
+      "notes": "弹层结构正确，但页面主体仍保留较强卡片观感。",
+      "highlights": [
+        "保存设置",
+        "浏览器接入",
+        "打开项目登录浏览器"
+      ]
+    },
+    {
+      "file": "mobile-home.png",
+      "url": "http://127.0.0.1:3031/",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "state": "初版移动端首页",
+      "notes": "移动端可用，但导航和主入口节奏还不够紧凑。",
+      "highlights": [
+        "执行结果",
+        "任务入口",
+        "收件箱同步"
+      ]
+    },
+    {
+      "file": "desktop-home-v2.png",
+      "url": "http://127.0.0.1:3031/",
+      "viewport": {
+        "width": 1440,
+        "height": 1400
+      },
+      "state": "优化后桌面首页",
+      "notes": "左侧导航更像连续侧栏，中间工作区更像操作面板。",
+      "highlights": [
+        "任务入口",
+        "外部收件箱同步与解析",
+        "执行结果"
+      ]
+    },
+    {
+      "file": "settings-modal-v2.png",
+      "url": "http://127.0.0.1:3031/",
+      "viewport": {
+        "width": 1440,
+        "height": 1400
+      },
+      "state": "优化后设置弹层",
+      "notes": "设置分组与正文区域层级更稳定。",
+      "highlights": [
+        "保存设置",
+        "浏览器接入",
+        "保存设置按钮"
+      ]
+    },
+    {
+      "file": "mobile-home-v2.png",
+      "url": "http://127.0.0.1:3031/",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "state": "优化后移动端首页",
+      "notes": "窄屏下没有横向溢出，主入口与结果区层级更稳定。",
+      "highlights": [
+        "执行结果",
+        "任务入口",
+        "分享文本与链接顺序保存"
+      ]
+    },
+    {
+      "file": "desktop-home-v3-active-nav.png",
+      "url": "http://127.0.0.1:3031/#section-links",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "state": "当前分区高亮后的桌面首页",
+      "notes": "左侧导航高亮当前入口，工作台定位更明确。",
+      "highlights": [
+        "链接保存",
+        "当前分区高亮",
+        "执行结果"
+      ]
+    }
+  ],
+  "verification": [
+    {
+      "command": "npm test",
+      "status": "passed",
+      "summary": "356/356 pass"
+    }
+  ]
+}

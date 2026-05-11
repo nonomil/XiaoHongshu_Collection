@@ -1,0 +1,811 @@
+﻿const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const http = require('node:http');
+const fs = require('fs');
+const path = require('path');
+
+const {
+  buildCommentArchivePath,
+  buildNotePaths,
+  generateMarkdown,
+  getUsefulComments,
+  getVisionOcrEndpoint,
+  normalizeSummaryTags,
+  processSingleNoteExport,
+  renderUsefulComments,
+  selectUsefulComments,
+  stripVisionOcrWrapper,
+  shouldUseVisionOcr,
+  writeCommentArchive,
+  writeSingleNoteMarkdown
+} = require('../../lib/note_export');
+const { createTempDir } = require('./test_tmp');
+
+test('processSingleNoteExport honors runtime ai api overrides for http endpoints and comment ai calls', async () => {
+  const requests = [];
+  const server = http.createServer((request, response) => {
+    let raw = '';
+    request.on('data', (chunk) => { raw += chunk; });
+    request.on('end', () => {
+      requests.push({
+        url: request.url,
+        authorization: request.headers.authorization || '',
+        title: request.headers['x-title'] || '',
+        body: raw ? JSON.parse(raw) : {}
+      });
+
+      response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      if (requests.length === 1) {
+        response.end(JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  summary: '运行时接口摘要',
+                  tags: ['标签甲', '标签乙', '标签丙']
+                })
+              }
+            }
+          ]
+        }));
+        return;
+      }
+      if (requests.length === 2) {
+        response.end(JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  keepIndexes: [1, 2]
+                })
+              }
+            }
+          ]
+        }));
+        return;
+      }
+      response.end(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                summary: '运行时评论总结'
+              })
+            }
+          }
+        ]
+      }));
+    });
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = server.address().port;
+    const tempRoot = createTempDir('xhs-process-export-runtime-api-');
+    const imagesRoot = path.join(tempRoot, '_images');
+    const configPath = path.join(tempRoot, 'openrouter.json');
+    const visionConfigPath = path.join(tempRoot, 'vision-ocr.json');
+    fs.writeFileSync(configPath, JSON.stringify({
+      enabled: true,
+      apiKey: 'file-key',
+      baseUrl: 'https://example.com/api/v1',
+      model: 'file-model',
+      timeoutMs: 30000
+    }, null, 2), 'utf-8');
+    fs.writeFileSync(visionConfigPath, JSON.stringify({ enabled: false }, null, 2), 'utf-8');
+
+    const result = await processSingleNoteExport({
+      outputRoot: tempRoot,
+      imagesRoot,
+      configPath,
+      visionConfigPath,
+      runtime: {
+        aiSummaryEnabled: true,
+        visionOcrEnabled: false,
+        openRouterBaseUrl: `http://127.0.0.1:${port}/v1`,
+        openRouterApiKey: 'runtime-key',
+        openRouterModel: 'runtime-model',
+        openRouterTimeoutMs: 12000
+      },
+      note: {
+        title: '运行时 API 覆盖',
+        noteId: 'runtime-api-123',
+        author: '作者',
+        collection: '单条笔记保存',
+        date: '2026-04-17',
+        tags: [],
+        images: [],
+        content: '正文内容',
+        comments: [
+          { commentId: 'c1', author: '甲', content: '这里补充了工具地址和使用经验。', likeCount: 3 },
+          { commentId: 'c2', author: '乙', content: '模型切换到本地接口后更稳。', likeCount: 2 }
+        ]
+      }
+    });
+
+    assert.equal(result.summary, '运行时接口摘要');
+    assert.equal(result.commentSummary, '运行时评论总结');
+    assert.equal(requests.length, 3);
+    requests.forEach((entry) => {
+      assert.equal(entry.url, '/v1/chat/completions');
+      assert.equal(entry.authorization, 'Bearer runtime-key');
+      assert.equal(entry.body.model, 'runtime-model');
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('buildNotePaths writes single note into 单条笔记保存', () => {
+  const paths = buildNotePaths({
+    outputRoot: 'G:/out',
+    collection: '单条笔记保存',
+    title: '测试标题',
+    noteId: 'abc123'
+  });
+
+  assert.match(paths.boardDir, /单条笔记保存/);
+  assert.match(paths.filepath, /测试标题\.md$/);
+});
+
+test('buildCommentArchivePath writes comment archive under _comments', () => {
+  const archivePath = buildCommentArchivePath({
+    outputRoot: 'G:/out/单条笔记保存',
+    noteId: 'abc123'
+  });
+
+  assert.match(archivePath, /_comments/);
+  assert.match(archivePath, /abc123\.json$/);
+});
+
+test('generateMarkdown includes content, OCR, image, and useful comment sections', () => {
+  const markdown = generateMarkdown({
+    note: {
+      title: '标题',
+      noteId: 'abc123',
+      author: '作者关注',
+      collection: '单条笔记保存',
+      date: '2026-03-08',
+      tags: ['标签1'],
+      images: ['https://example.com/a.jpg']
+    },
+    content: '正文内容',
+    ocrTexts: [{ index: 0, text: '图片文字' }],
+    summary: '一句话摘要',
+    tags: ['标签1', '标签2', '标签3'],
+    commentSummary: '评论区主要补充了工具名、资源站和作者答疑。',
+    usefulComments: [
+      {
+        author: '评论者',
+        date: '02-28',
+        likeCount: 12,
+        content: '给网址让模型自己分析再复刻会更稳。'
+      }
+    ]
+  });
+
+  assert.match(markdown, /正文内容/);
+  assert.match(markdown, /## 图片内容（OCR 识别）/);
+  assert.match(markdown, /## 原始图片/);
+  assert.match(markdown, /## 评论区总结/);
+  assert.match(markdown, /评论区主要补充了工具名、资源站和作者答疑。/);
+  assert.match(markdown, /## 有用评论全文/);
+  assert.match(markdown, /\| 评论 \| 内容 \|/);
+  assert.match(markdown, /给网址让模型自己分析再复刻会更稳。/);
+  assert.match(markdown, /\*来源：小红书 \[@作者\]\(https:\/\/www\.xiaohongshu\.com\/discovery\/item\/abc123\)\*/);
+});
+
+test('generateMarkdown prefers sourceUrl when provided', () => {
+  const markdown = generateMarkdown({
+    note: {
+      title: '标题',
+      noteId: 'abc123',
+      author: '作者',
+      collection: '单条笔记保存',
+      date: '2026-03-08',
+      tags: [],
+      images: [],
+      sourceUrl: 'http://xhslink.com/o/short1'
+    },
+    content: '正文内容',
+    ocrTexts: [],
+    summary: '摘要',
+    tags: ['标签1', '标签2', '标签3']
+  });
+
+  assert.match(markdown, /source: "http:\/\/xhslink\.com\/o\/short1"/);
+  assert.match(markdown, /\*来源：小红书 \[@作者\]\(http:\/\/xhslink\.com\/o\/short1\)\*/);
+});
+
+test('generateMarkdown uses platform-aware source footer for article pages', () => {
+  const markdown = generateMarkdown({
+    note: {
+      title: '文章标题',
+      author: '圆圆大侠',
+      platform: 'wechat',
+      sourceType: 'wechat_article',
+      collection: '微信公众号文章',
+      date: '2026-03-21',
+      tags: [],
+      images: [],
+      sourceUrl: 'https://mp.weixin.qq.com/s/abc123'
+    },
+    content: '正文内容',
+    ocrTexts: [],
+    summary: '摘要',
+    tags: ['标签1', '标签2', '标签3']
+  });
+
+  assert.match(markdown, /source: "https:\/\/mp\.weixin\.qq\.com\/s\/abc123"/);
+  assert.match(markdown, /\*来源：微信公众号 \[圆圆大侠\]\(https:\/\/mp\.weixin\.qq\.com\/s\/abc123\)\*/);
+});
+
+test('generateMarkdown includes comment total and collected', () => {
+  const markdown = generateMarkdown({
+    note: {
+      title: '标题',
+      noteId: 'abc123',
+      author: '作者',
+      collection: '单条笔记保存',
+      date: '2026-03-08',
+      tags: [],
+      images: [],
+      commentTotal: 10,
+      comments: [
+        { author: 'A', content: 'c1' },
+        { author: 'B', content: 'c2' }
+      ]
+    },
+    content: '正文',
+    ocrTexts: [],
+    summary: '摘要',
+    tags: ['标签1', '标签2', '标签3']
+  });
+
+  assert.match(markdown, /comment_total: 10/);
+  assert.match(markdown, /comment_collected: 2/);
+});
+
+test('generateMarkdown renders comment collection failure without blocking note body', () => {
+  const markdown = generateMarkdown({
+    note: {
+      title: '标题',
+      noteId: 'abc123',
+      author: '作者',
+      collection: '单条笔记保存',
+      date: '2026-03-08',
+      tags: [],
+      images: []
+    },
+    content: '正文内容',
+    ocrTexts: [],
+    summary: '摘要',
+    tags: ['标签1', '标签2', '标签3'],
+    commentError: '评论区采集失败，本次仅导出正文与图片内容'
+  });
+
+  assert.match(markdown, /正文内容/);
+  assert.match(markdown, /## 评论区总结/);
+  assert.match(markdown, /评论区采集失败，本次仅导出正文与图片内容/);
+});
+
+test('processSingleNoteExport emits comment_login_required warning for login-gated comments', async () => {
+  const tempRoot = createTempDir('xhs-process-export-');
+  const imagesRoot = path.join(tempRoot, '_images');
+  const configPath = path.join(tempRoot, 'openrouter.json');
+  const visionConfigPath = path.join(tempRoot, 'vision-ocr.json');
+  fs.writeFileSync(configPath, JSON.stringify({ enabled: false }), 'utf-8');
+  fs.writeFileSync(visionConfigPath, JSON.stringify({ enabled: false }), 'utf-8');
+
+  const result = await processSingleNoteExport({
+    outputRoot: tempRoot,
+    imagesRoot,
+    configPath,
+    visionConfigPath,
+    note: {
+      title: '评论登录门槛测试',
+      noteId: 'login123',
+      author: '作者',
+      collection: '单条笔记保存',
+      date: '2026-03-19',
+      tags: [],
+      images: [],
+      content: '正文内容',
+      comments: [{ commentId: 'c1', author: '评论者', content: '已加载评论' }],
+      commentTotal: 40,
+      commentError: '评论可能未完整加载：页面显示共 40 条，当前抓取 1 条。当前网页端提示“登录查看全部评论内容”，剩余评论可能被网页端登录门槛拦截，请先在当前 Chrome 会话中登录后重试。',
+      commentWarningCode: 'comment_login_required'
+    }
+  });
+
+  assert.equal(result.warnings.length, 1);
+  assert.equal(result.warnings[0].code, 'comment_login_required');
+  assert.match(result.warnings[0].message, /登录/);
+  assert.equal(result.comment_total, 40);
+  assert.equal(result.comment_collected, 1);
+  assert.equal(result.comment_warning_code, 'comment_login_required');
+  assert.match(result.comment_error, /登录/);
+  assert.equal(result.manual_action_required, true);
+  assert.equal(result.manual_action_reason, 'login_required');
+});
+
+test('processSingleNoteExport mirrors inbox exports into a total folder while keeping categorized copy', async () => {
+  const tempRoot = createTempDir('xhs-process-export-mirror-');
+  const outputRoot = path.join(tempRoot, '收件箱同步');
+  const imagesRoot = path.join(tempRoot, '_images');
+  const configPath = path.join(tempRoot, 'openrouter.json');
+  const visionConfigPath = path.join(tempRoot, 'vision-ocr.json');
+  fs.writeFileSync(configPath, JSON.stringify({ enabled: false }), 'utf-8');
+  fs.writeFileSync(visionConfigPath, JSON.stringify({ enabled: false }), 'utf-8');
+
+  const result = await processSingleNoteExport({
+    outputRoot,
+    imagesRoot,
+    configPath,
+    visionConfigPath,
+    mirrorTargets: [
+      {
+        outputRoot,
+        collection: '全部'
+      }
+    ],
+    note: {
+      title: '镜像导出测试',
+      noteId: 'mirror123',
+      author: '作者',
+      collection: 'AI',
+      date: '2026-03-22',
+      tags: [],
+      images: [],
+      content: '正文内容',
+      comments: [
+        { commentId: 'c1', author: '评论者', content: '评论内容' }
+      ]
+    }
+  });
+
+  assert.match(result.filepath, /收件箱同步[\\/]+AI[\\/]+镜像导出测试\.md$/);
+  assert.deepEqual(result.mirrorFilepaths.length, 1);
+  assert.match(result.mirrorFilepaths[0], /收件箱同步[\\/]+全部[\\/]+镜像导出测试\.md$/);
+  assert.equal(fs.existsSync(result.filepath), true);
+  assert.equal(fs.existsSync(result.mirrorFilepaths[0]), true);
+  assert.equal(fs.existsSync(result.commentArchivePath), true);
+  assert.equal(fs.existsSync(result.mirrorCommentArchivePaths[0]), true);
+});
+
+test('renderUsefulComments returns fallback when no useful comments are kept', () => {
+  const section = renderUsefulComments([]);
+  assert.match(section, /未筛出高价值评论/);
+});
+
+test('renderUsefulComments groups threaded replies into one markdown table row', () => {
+  const section = renderUsefulComments([
+    { commentId: 'c1', rootId: 'c1', parentId: '', level: 0, content: '主评论' },
+    { commentId: 'c2', rootId: 'c1', parentId: 'c1', level: 1, content: '第一条回复' },
+    { commentId: 'c3', rootId: 'c1', parentId: 'c1', level: 1, content: '第二条回复' },
+    { commentId: 'c4', rootId: 'c4', parentId: '', level: 0, content: '另一条主评论' }
+  ]);
+
+  assert.match(section, /\| 评论 \| 内容 \|/);
+  assert.match(section, /\| 评论 1 \| 主评论<br>↳ 第一条回复<br>↳ 第二条回复 \|/);
+  assert.match(section, /\| 评论 2 \| 另一条主评论 \|/);
+  assert.doesNotMatch(section, /作者|时间|点赞/);
+});
+
+test('generateMarkdown places comments after OCR and before original images', () => {
+  const markdown = generateMarkdown({
+    note: {
+      title: '标题',
+      noteId: 'abc123',
+      author: '作者',
+      collection: '单条笔记保存',
+      date: '2026-03-08',
+      tags: ['标签1'],
+      images: ['https://example.com/a.jpg']
+    },
+    content: '正文内容',
+    ocrTexts: [{ index: 0, text: '图片文字' }],
+    summary: '一句话摘要',
+    tags: ['标签1', '标签2', '标签3'],
+    commentSummary: '评论总结',
+    usefulComments: [
+      { commentId: 'c1', rootId: 'c1', parentId: '', level: 0, content: '主评论' }
+    ]
+  });
+
+  assert.equal(markdown.indexOf('## 评论区总结') > markdown.indexOf('## 图片内容（OCR 识别）'), true);
+  assert.equal(markdown.indexOf('## 评论区总结') < markdown.indexOf('## 原始图片'), true);
+});
+
+test('normalizeSummaryTags removes garbled tags before frontmatter output', () => {
+  const result = normalizeSummaryTags(
+    { summary: '一句话摘要', tags: ['С����', '家庭教育'] },
+    { summary: '后备摘要', tags: ['学习工具', '儿童自驱力'] }
+  );
+
+  assert.deepEqual(result.tags, ['家庭教育', '学习工具', '儿童自驱力']);
+});
+
+test('selectUsefulComments filters obvious noise comments with heuristic fallback', () => {
+  const comments = [
+    { commentId: '1', author: 'A', content: '确实好看', likeCount: 0, isAuthor: false },
+    { commentId: '2', author: 'B', content: '给网址让 gemini 自己分析再复刻会更稳。', likeCount: 3, isAuthor: false },
+    { commentId: '3', author: '作者', content: '我用的是截图 + 参考站点 + 提示词约束。', likeCount: 2, isAuthor: true },
+    { commentId: '4', author: 'D', content: '蹲', likeCount: 0, isAuthor: false }
+  ];
+
+  const useful = selectUsefulComments({ comments, config: { _missing: true } });
+  assert.equal(useful.some((item) => item.commentId === '2'), true);
+  assert.equal(useful.some((item) => item.commentId === '3'), true);
+  assert.equal(useful.some((item) => item.commentId === '4'), false);
+});
+
+test('selectUsefulComments keeps short author replies', () => {
+  const comments = [
+    { commentId: '1', author: '作者', content: '收到', likeCount: 0, isAuthor: true },
+    { commentId: '2', author: '路人', content: '好看', likeCount: 0, isAuthor: false }
+  ];
+
+  const useful = selectUsefulComments({ comments, config: { _missing: true } });
+  assert.equal(useful.some((item) => item.commentId === '1'), true);
+});
+
+test('selectUsefulComments keeps some low-value but non-noise comments', () => {
+  const comments = [
+    { commentId: '1', author: 'A', content: '内容一般般，但路过看看。', likeCount: 0, isAuthor: false },
+    { commentId: '2', author: 'B', content: '感觉还行，先收藏。', likeCount: 0, isAuthor: false }
+  ];
+
+  const useful = selectUsefulComments({ comments, config: { _missing: true } });
+  assert.equal(useful.length > 0, true);
+});
+
+test('renderUsefulComments orders replies after root comments', () => {
+  const section = renderUsefulComments([
+    { commentId: 'c2', rootId: 'c1', parentId: 'c1', level: 1, content: '回复在前' },
+    { commentId: 'c1', rootId: 'c1', parentId: '', level: 0, content: '主评论' }
+  ]);
+
+  assert.match(section, /\| 评论 1 \| 主评论<br>↳ 回复在前 \|/);
+});
+
+test('getUsefulComments applies AI second-pass filtering when available', async () => {
+  const comments = [
+    { commentId: '2', author: 'B', content: '给网址让 gemini 自己分析再复刻会更稳。', likeCount: 3, isAuthor: false },
+    { commentId: '3', author: '作者', content: '我用的是截图 + 参考站点 + 提示词约束。', likeCount: 2, isAuthor: true }
+  ];
+
+  const useful = await getUsefulComments({
+    comments,
+    config: {
+      enabled: true,
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com/v1',
+      model: 'test-model'
+    },
+    reviewFn: async () => ({ keepIndexes: [2] })
+  });
+
+  assert.deepEqual(useful.map((item) => item.commentId), ['3']);
+});
+
+test('writeSingleNoteMarkdown overwrites the same path for the same note', () => {
+  const tempRoot = createTempDir('xhs-note-export-');
+  const note = {
+    title: '同一条笔记',
+    noteId: 'same123',
+    author: '作者关注',
+    collection: '单条笔记保存',
+    date: '2026-03-08',
+    tags: [],
+    images: []
+  };
+
+  const firstPath = writeSingleNoteMarkdown({
+    outputRoot: tempRoot,
+    note,
+    content: '第一次',
+    ocrTexts: [],
+    summary: '摘要',
+    tags: ['标签1', '标签2', '标签3']
+  });
+  const secondPath = writeSingleNoteMarkdown({
+    outputRoot: tempRoot,
+    note,
+    content: '第二次',
+    ocrTexts: [],
+    summary: '摘要',
+    tags: ['标签1', '标签2', '标签3']
+  });
+
+  assert.equal(firstPath, secondPath);
+  assert.equal(fs.readFileSync(secondPath, 'utf-8').includes('第二次'), true);
+});
+
+
+test('writeSingleNoteMarkdown adds suffix when content differs with content-aware strategy', () => {
+  const tempRoot = createTempDir('xhs-note-export-');
+  const note = {
+    title: 'Conflict Strategy',
+    noteId: 'conflict123',
+    author: 'Author',
+    collection: 'Single',
+    date: '2026-03-08',
+    tags: [],
+    images: []
+  };
+
+  const firstPath = writeSingleNoteMarkdown({
+    outputRoot: tempRoot,
+    note,
+    content: 'Body A',
+    ocrTexts: [],
+    summary: 'Summary',
+    tags: ['Tag1', 'Tag2', 'Tag3'],
+    conflictStrategy: 'content-aware'
+  });
+  const secondPath = writeSingleNoteMarkdown({
+    outputRoot: tempRoot,
+    note,
+    content: 'Body B',
+    ocrTexts: [],
+    summary: 'Summary',
+    tags: ['Tag1', 'Tag2', 'Tag3'],
+    conflictStrategy: 'content-aware'
+  });
+
+  assert.notEqual(firstPath, secondPath);
+  assert.match(secondPath, /-1\.md$/);
+});
+test('writeSingleNoteMarkdown writes UTF-8 BOM for Windows-compatible markdown display', () => {
+  const tempRoot = createTempDir('xhs-note-export-');
+  const note = {
+    title: '编码测试',
+    noteId: 'bom123',
+    author: '作者',
+    collection: '单条笔记保存',
+    date: '2026-03-12',
+    tags: [],
+    images: []
+  };
+
+  const filepath = writeSingleNoteMarkdown({
+    outputRoot: tempRoot,
+    note,
+    content: '中文正文',
+    ocrTexts: [],
+    summary: '摘要',
+    tags: ['标签1', '标签2', '标签3']
+  });
+
+  const bytes = fs.readFileSync(filepath);
+  assert.equal(bytes[0], 0xEF);
+  assert.equal(bytes[1], 0xBB);
+  assert.equal(bytes[2], 0xBF);
+  assert.equal(bytes.toString('utf8').includes('中文正文'), true);
+});
+
+test('writeCommentArchive writes raw comments json', () => {
+  const tempRoot = createTempDir('xhs-comment-archive-');
+  const archivePath = writeCommentArchive({
+    outputRoot: tempRoot,
+    noteId: 'note123',
+    noteTitle: '标题',
+    comments: [{ commentId: 'c1', content: '评论内容' }]
+  });
+
+  const payload = JSON.parse(fs.readFileSync(archivePath, 'utf-8'));
+  assert.equal(payload.noteId, 'note123');
+  assert.equal(payload.totalComments, 1);
+  assert.equal(payload.comments[0].commentId, 'c1');
+});
+
+test('processSingleNoteExport returns a stable result shape when comments exist', async () => {
+  const tempRoot = createTempDir('xhs-process-export-');
+  const imagesRoot = path.join(tempRoot, '_images');
+  const configPath = path.join(tempRoot, 'openrouter.json');
+  const visionConfigPath = path.join(tempRoot, 'vision-ocr.json');
+  fs.writeFileSync(configPath, JSON.stringify({ enabled: false }), 'utf-8');
+  fs.writeFileSync(visionConfigPath, JSON.stringify({ enabled: false }), 'utf-8');
+
+  const result = await processSingleNoteExport({
+    outputRoot: tempRoot,
+    imagesRoot,
+    configPath,
+    visionConfigPath,
+    note: {
+      title: '稳定结构测试',
+      noteId: 'shape123',
+      author: '作者',
+      collection: '单条笔记保存',
+      date: '2026-03-12',
+      tags: ['标签1'],
+      images: [],
+      content: '正文内容',
+      comments: [
+        { commentId: 'c1', author: '评论者', content: '有价值评论', isAuthor: false }
+      ]
+    }
+  });
+
+  assert.deepEqual(
+    Object.keys(result).sort(),
+    ['commentArchivePath', 'commentSummary', 'comment_collected', 'comment_error', 'comment_total', 'comment_warning_code', 'content', 'filepath', 'manual_action_reason', 'manual_action_required', 'ocrTexts', 'summary', 'tags', 'usefulComments', 'warnings']
+  );
+  assert.equal(typeof result.filepath, 'string');
+  assert.equal(result.filepath.endsWith('.md'), true);
+  assert.equal(typeof result.commentArchivePath, 'string');
+  assert.equal(result.commentArchivePath.endsWith('.json'), true);
+  assert.equal(result.content, '正文内容');
+  assert.deepEqual(result.ocrTexts, []);
+  assert.equal(typeof result.summary, 'string');
+  assert.equal(Array.isArray(result.tags), true);
+  assert.equal(Array.isArray(result.usefulComments), true);
+  assert.equal(typeof result.commentSummary, 'string');
+  assert.equal(Array.isArray(result.warnings), true);
+  assert.equal(typeof result.comment_total, 'number');
+  assert.equal(typeof result.comment_collected, 'number');
+  assert.equal(typeof result.comment_warning_code, 'string');
+  assert.equal(typeof result.comment_error, 'string');
+  assert.equal(typeof result.manual_action_required, 'boolean');
+  assert.equal(typeof result.manual_action_reason, 'string');
+  assert.equal(Object.hasOwn(result, 'mirrorFilepaths'), false);
+  assert.equal(Object.hasOwn(result, 'mirrorCommentArchivePaths'), false);
+});
+
+test('processSingleNoteExport returns a stable result shape when comments are absent', async () => {
+  const tempRoot = createTempDir('xhs-process-export-');
+  const imagesRoot = path.join(tempRoot, '_images');
+  const configPath = path.join(tempRoot, 'openrouter.json');
+  const visionConfigPath = path.join(tempRoot, 'vision-ocr.json');
+  fs.writeFileSync(configPath, JSON.stringify({ enabled: false }), 'utf-8');
+  fs.writeFileSync(visionConfigPath, JSON.stringify({ enabled: false }), 'utf-8');
+
+  const result = await processSingleNoteExport({
+    outputRoot: tempRoot,
+    imagesRoot,
+    configPath,
+    visionConfigPath,
+    note: {
+      title: '无评论结构测试',
+      noteId: 'shape124',
+      author: '作者',
+      collection: '单条笔记保存',
+      date: '2026-03-12',
+      tags: [],
+      images: [],
+      content: '正文内容',
+      comments: []
+    }
+  });
+
+  assert.deepEqual(
+    Object.keys(result).sort(),
+    ['commentArchivePath', 'commentSummary', 'comment_collected', 'comment_error', 'comment_total', 'comment_warning_code', 'content', 'filepath', 'manual_action_reason', 'manual_action_required', 'ocrTexts', 'summary', 'tags', 'usefulComments', 'warnings']
+  );
+  assert.equal(typeof result.filepath, 'string');
+  assert.equal(result.commentArchivePath, '');
+  assert.equal(result.content, '正文内容');
+  assert.deepEqual(result.ocrTexts, []);
+  assert.equal(typeof result.summary, 'string');
+  assert.equal(Array.isArray(result.tags), true);
+  assert.equal(Array.isArray(result.usefulComments), true);
+  assert.equal(typeof result.commentSummary, 'string');
+  assert.equal(Array.isArray(result.warnings), true);
+  assert.equal(result.comment_total, 0);
+  assert.equal(result.comment_collected, 0);
+  assert.equal(result.comment_warning_code, '');
+  assert.equal(result.comment_error, '');
+  assert.equal(result.manual_action_required, false);
+  assert.equal(result.manual_action_reason, '');
+  assert.equal(Object.hasOwn(result, 'mirrorFilepaths'), false);
+  assert.equal(Object.hasOwn(result, 'mirrorCommentArchivePaths'), false);
+});
+
+test('processSingleNoteExport can resolve final collection after summary and tags are ready', async () => {
+  const tempRoot = createTempDir('xhs-process-export-');
+  const imagesRoot = path.join(tempRoot, '_images');
+  const configPath = path.join(tempRoot, 'openrouter.json');
+  const visionConfigPath = path.join(tempRoot, 'vision-ocr.json');
+  fs.writeFileSync(configPath, JSON.stringify({ enabled: false }), 'utf-8');
+  fs.writeFileSync(visionConfigPath, JSON.stringify({ enabled: false }), 'utf-8');
+
+  const result = await processSingleNoteExport({
+    outputRoot: tempRoot,
+    imagesRoot,
+    configPath,
+    visionConfigPath,
+    note: {
+      title: 'Chrome DevTools MCP 让 AI 接管当前浏览器',
+      noteId: 'classify123',
+      author: '作者',
+      collection: '微信公众号文章',
+      date: '2026-03-21',
+      tags: ['AI', '浏览器自动化'],
+      images: [],
+      content: '正文内容',
+      comments: []
+    },
+    collectionResolver: ({ note, summary, tags, content }) => {
+      assert.equal(note.collection, '微信公众号文章');
+      assert.equal(typeof summary, 'string');
+      assert.equal(Array.isArray(tags), true);
+      assert.match(content, /正文内容/);
+      return tags.includes('AI') ? 'AI' : '';
+    }
+  });
+
+  assert.match(result.filepath, /[\\/]AI[\\/]/);
+  const markdown = fs.readFileSync(result.filepath, 'utf-8');
+  assert.match(markdown, /collection: "AI"/);
+});
+
+test('processSingleNoteExport keeps original collection when export-time resolver returns empty', async () => {
+  const tempRoot = createTempDir('xhs-process-export-');
+  const imagesRoot = path.join(tempRoot, '_images');
+  const configPath = path.join(tempRoot, 'openrouter.json');
+  const visionConfigPath = path.join(tempRoot, 'vision-ocr.json');
+  fs.writeFileSync(configPath, JSON.stringify({ enabled: false }), 'utf-8');
+  fs.writeFileSync(visionConfigPath, JSON.stringify({ enabled: false }), 'utf-8');
+
+  const result = await processSingleNoteExport({
+    outputRoot: tempRoot,
+    imagesRoot,
+    configPath,
+    visionConfigPath,
+    note: {
+      title: '未命中分类',
+      noteId: 'classify124',
+      author: '作者',
+      collection: '知乎文章',
+      date: '2026-03-21',
+      tags: ['标签1'],
+      images: [],
+      content: '正文内容',
+      comments: []
+    },
+    collectionResolver: () => ''
+  });
+
+  assert.match(result.filepath, /[\\/]知乎文章[\\/]/);
+  const markdown = fs.readFileSync(result.filepath, 'utf-8');
+  assert.match(markdown, /collection: "知乎文章"/);
+});
+
+test('getVisionOcrEndpoint uses responses api for openai-compatible provider', () => {
+  assert.equal(
+    getVisionOcrEndpoint({ baseUrl: 'https://example.com/v1', provider: 'openai-compatible' }),
+    'https://example.com/v1/responses'
+  );
+});
+
+test('stripVisionOcrWrapper removes assistant framing text', () => {
+  const raw = [
+    '可以，我先帮你做这张图的 OCR 文字提取。',
+    '',
+    '---',
+    '',
+    '## OCR 识别结果',
+    '',
+    '阿东玩AI',
+    '@阿东的大模型实验室',
+    '',
+    '图片沟通比文字更有用',
+    '',
+    '---',
+    '',
+    '如果你愿意，我还可以继续帮你整理。'
+  ].join('\n');
+
+  const cleaned = stripVisionOcrWrapper(raw);
+  assert.equal(cleaned.startsWith('阿东玩AI'), true);
+  assert.equal(cleaned.includes('如果你愿意，我还可以继续帮你整理。'), false);
+});
+
+test('shouldUseVisionOcr requires enabled config with credentials', () => {
+  assert.equal(shouldUseVisionOcr({ enabled: true, baseUrl: 'https://example.com/v1', apiKey: 'sk-test', model: 'gpt-test' }), true);
+  assert.equal(shouldUseVisionOcr({ enabled: false, baseUrl: 'https://example.com/v1', apiKey: 'sk-test', model: 'gpt-test' }), false);
+  assert.equal(shouldUseVisionOcr({ enabled: true, baseUrl: '', apiKey: 'sk-test', model: 'gpt-test' }), false);
+});
+

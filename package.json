@@ -1,0 +1,22 @@
+{
+  "scripts": {
+    "extract": "node scripts/extract_v4.js",
+    "ocr": "node scripts/ocr_and_write.js",
+    "save-note": "node scripts/save_note.js",
+    "zhihu:favorites": "node scripts/save_zhihu_favorites.js",
+    "inbox:sync": "node scripts/inbox_sync.js",
+    "inbox:save": "node scripts/inbox_save.js",
+    "inbox:verify": "node scripts/inbox_verify_recent.js",
+    "ui": "node scripts/ui_server.js",
+    "pretest": "node scripts/cleanup_tmp.js",
+    "posttest": "node scripts/cleanup_tmp.js",
+    "test": "node --test scripts/ai/__tests__/*.test.js"
+  },
+  "dependencies": {
+    "tesseract.js": "^7.0.0",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  }
+}

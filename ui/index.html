@@ -1,0 +1,598 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>多源收藏本地归档工作台</title>
+  <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Libre+Bodoni:wght@400;500;600;700&family=Public+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <section class="hero-panel">
+        <div class="topbar-title">
+          <p class="eyebrow">MULTI-SOURCE ARCHIVE WORKBENCH</p>
+          <h1>多源收藏本地归档工作台</h1>
+          <p class="subtitle">把小红书收藏夹、知乎收藏夹、收件箱和单条链接统一收口到一个界面，减少来回切换和重复操作。</p>
+        </div>
+        <section id="summary-row" class="summary-row" aria-label="当前运行设置"></section>
+      </section>
+      <div class="topbar-actions">
+        <button id="open-settings" class="button ghost" type="button">设置</button>
+      </div>
+    </header>
+
+    <section class="mobile-quickbar" aria-label="移动端快捷入口">
+      <div class="mobile-quickbar-head">
+        <p class="card-kicker">快速开始</p>
+        <strong>直接跳到任务入口</strong>
+      </div>
+      <div class="mobile-quickbar-links">
+        <a class="mobile-quickbar-link" href="#section-collection">收藏夹同步</a>
+        <a class="mobile-quickbar-link" href="#section-video-notes">视频图文笔记</a>
+        <a class="mobile-quickbar-link" href="#section-inbox">收件箱同步</a>
+        <a class="mobile-quickbar-link" href="#section-links">链接保存</a>
+      </div>
+    </section>
+
+    <section class="workspace-layout">
+      <aside class="workspace-sidebar">
+        <div class="workspace-sidebar-head">
+          <p class="card-kicker">工作台导航</p>
+          <h2>任务入口</h2>
+          <p class="workspace-sidebar-copy">先确定当前任务，再在中间工作区执行，右侧结果区会持续显示进度和输出状态。</p>
+        </div>
+
+        <nav class="workspace-nav" aria-label="工作台导航">
+          <a class="workspace-nav-link" href="#section-collection">
+            <span>01</span>
+            <strong>收藏夹同步</strong>
+            <small>小红书与知乎统一入口</small>
+          </a>
+          <a class="workspace-nav-link" href="#section-inbox">
+            <span>02</span>
+            <strong>收件箱同步</strong>
+            <small>最近消息同步与解析保存</small>
+          </a>
+          <a class="workspace-nav-link" href="#section-video-notes">
+            <span>03</span>
+            <strong>视频图文笔记</strong>
+            <small>独立视频工作台入口</small>
+          </a>
+          <a class="workspace-nav-link" href="#section-links">
+            <span>04</span>
+            <strong>链接保存</strong>
+            <small>粘贴分享文本顺序保存</small>
+          </a>
+          <a class="workspace-nav-link" href="#section-results">
+            <span>05</span>
+            <strong>执行结果</strong>
+            <small>查看进度、警告与输出目录</small>
+          </a>
+          <button class="workspace-nav-link workspace-nav-link-button" type="button" data-open-settings="true">
+            <span>06</span>
+            <strong>打开设置</strong>
+            <small>浏览器、分类与 OCR 参数</small>
+          </button>
+        </nav>
+
+        <p class="workspace-sidebar-tip">推荐顺序：先检测浏览器连接与登录状态，再执行收藏夹同步或收件箱同步，最后在右侧结果区核对保存结果。</p>
+
+        <section class="task-history-card" aria-label="最近任务">
+          <div class="task-history-head">
+            <p class="card-kicker">最近任务</p>
+            <strong>回看最近执行记录</strong>
+          </div>
+          <div id="task-history-list" class="task-history-list">
+            <p class="task-history-empty">最近任务会显示在这里，可直接恢复到结果区继续查看。</p>
+          </div>
+        </section>
+      </aside>
+
+      <div class="workspace-main">
+        <section id="section-collection" class="workspace-section" aria-label="收藏夹同步工作区">
+          <div class="workspace-section-head">
+            <div>
+              <p class="card-kicker">收藏夹同步</p>
+              <h2>小红书与知乎收藏夹同步</h2>
+            </div>
+            <p class="workspace-section-lead">先看浏览器状态，再切换平台执行。小红书适合当前收藏直接导出，知乎适合指定收藏夹 URL 顺序保存。</p>
+          </div>
+
+          <div class="workspace-section-body">
+            <section class="browser-status-card" aria-label="浏览器状态">
+              <div class="browser-status-head">
+                <div>
+                  <p class="card-kicker">浏览器状态</p>
+                  <h3>连接与登录状态</h3>
+                </div>
+                <button id="refresh-browser-status" class="button ghost" type="button">刷新状态</button>
+              </div>
+              <div id="browser-status-summary" class="browser-status-summary">
+                <span class="browser-status-pill">等待检测</span>
+              </div>
+              <p id="browser-status-detail" class="browser-status-detail">会检测当前配置下的 Chrome 接入、以及小红书和知乎登录态是否可复用。</p>
+            </section>
+
+            <div class="collection-source-switch" role="tablist" aria-label="收藏夹平台切换">
+              <button class="collection-source-button" data-collection-source="xiaohongshu" type="button" role="tab" aria-controls="collection-panel-xiaohongshu">
+                小红书收藏
+              </button>
+              <button class="collection-source-button" data-collection-source="zhihu" type="button" role="tab" aria-controls="collection-panel-zhihu">
+                知乎收藏夹
+              </button>
+            </div>
+
+            <section id="collection-panel-xiaohongshu" class="collection-source-panel" data-collection-panel="xiaohongshu" aria-label="小红书收藏同步">
+              <div class="collection-source-panel-head">
+                <div>
+                  <p class="card-kicker">小红书收藏</p>
+                  <h3>当前收藏一键导出</h3>
+                </div>
+                <div class="inline-hints">
+                  <span>extract_v4.js</span>
+                  <span>ocr_and_write.js</span>
+                  <span>本地归档</span>
+                </div>
+              </div>
+              <p class="workspace-section-copy">适合“我已经登录好了，现在把当前小红书收藏这一批直接落地到本地”的使用场景。</p>
+              <div class="collection-source-meta">
+                <span>复用当前浏览器或项目登录态</span>
+                <span>自动 OCR 与归档</span>
+                <span>同步完成后进入总库与分类库</span>
+              </div>
+              <div class="button-row">
+                <button id="collection-submit" class="button secondary" type="button">开始同步小红书收藏</button>
+              </div>
+            </section>
+
+            <section id="collection-panel-zhihu" class="collection-source-panel" data-collection-panel="zhihu" aria-label="知乎收藏夹同步" hidden>
+              <div class="collection-source-panel-head">
+                <div>
+                  <p class="card-kicker">知乎收藏夹</p>
+                  <h3>指定收藏夹 URL 顺序保存</h3>
+                </div>
+                <div class="inline-hints">
+                  <span>collection api</span>
+                  <span>Chrome 登录态</span>
+                  <span>分类归档</span>
+                </div>
+              </div>
+              <p class="workspace-section-copy">填入知乎收藏夹链接后，会复用浏览器登录态拉取条目，再按现有正文保存流程逐条归档。</p>
+              <div class="collection-source-form">
+                <label class="field">
+                  <span>知乎收藏夹链接</span>
+                  <input id="zhihu-favorites-url" type="url" placeholder="例如：https://www.zhihu.com/collection/123456789">
+                </label>
+                <div class="collection-source-fields">
+                  <label class="field">
+                    <span>自定义标题</span>
+                    <input id="zhihu-favorites-title" type="text" placeholder="可选：不填则自动读取收藏夹标题">
+                  </label>
+                  <label class="field">
+                    <span>同步条数</span>
+                    <input id="zhihu-favorites-limit" type="number" min="1" step="1" placeholder="默认 20">
+                  </label>
+                </div>
+              </div>
+              <p class="field-hint">首次请先在浏览器接入里登录知乎，再回来执行收藏夹同步；如果已配置当前 Chrome 接入，会优先复用当前登录态。</p>
+              <div class="button-row">
+                <button id="zhihu-favorites-submit" class="button" type="button">开始同步知乎收藏夹</button>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="section-video-notes" class="workspace-section" aria-label="视频图文笔记工作区">
+          <div class="workspace-section-head">
+            <div>
+              <p class="card-kicker">视频图文笔记</p>
+              <h2>视频保存图文笔记入口</h2>
+            </div>
+            <p class="workspace-section-lead">这里保留独立可运行的子项目形态，先把目录入口和 Web 启动入口接进主工作台，后续再决定是否做更深的参数联动。</p>
+          </div>
+
+          <div class="workspace-section-body">
+            <section class="video-notes-card" aria-label="视频图文笔记入口卡片">
+              <div class="collection-source-panel-head">
+                <div>
+                  <p class="card-kicker">独立工作台</p>
+                  <h3>Notes_Video_Collection</h3>
+                </div>
+                <div class="inline-hints">
+                  <span>独立可运行</span>
+                  <span>start_web_ui.bat</span>
+                  <span>Web 工作台</span>
+                </div>
+              </div>
+              <p class="workspace-section-copy">适合“先进入专门的视频处理界面，再把视频保存为图文笔记”的场景。不会打断当前小红书、知乎、收件箱和链接保存工作流。</p>
+              <div class="video-notes-path">
+                <strong>项目目录</strong>
+                <code>G:\UserCode\XiaoHongshu_Collection\prj\Notes_Video_Collection</code>
+              </div>
+              <div class="video-notes-actions">
+                <button class="button secondary" type="button" data-video-notes-open-folder="true">打开子项目目录</button>
+                <button class="button" type="button" data-video-notes-start-web="true">启动视频笔记 Web</button>
+              </div>
+              <p id="video-notes-status" class="field-hint">会调用 `start_web_ui.bat` 启动独立 Web，默认访问 `http://127.0.0.1:7860/`。</p>
+            </section>
+          </div>
+        </section>
+
+        <section id="section-inbox" class="workspace-section" aria-label="收件箱同步工作区">
+          <div class="workspace-section-head">
+            <div>
+              <p class="card-kicker">收件箱同步</p>
+              <h2>外部收件箱同步与解析</h2>
+            </div>
+            <p class="workspace-section-lead">先同步外部服务链接，再继续解析保存。同步和落地都集中在这个工作段里完成。</p>
+          </div>
+
+          <div class="workspace-section-body">
+            <div class="inline-hints">
+              <span>Pushbullet</span>
+              <span>IFTTT</span>
+              <span>飞书</span>
+            </div>
+            <div class="task-flow">
+              <section class="task-step" aria-label="步骤一 同步到收件箱">
+                <div class="task-step-head">
+                  <span class="task-step-index">步骤 1</span>
+                  <strong>同步到收件箱</strong>
+                </div>
+                <p class="task-step-copy">先按时间范围把外部消息拉到本地收件箱。建议先从今天或最近 7 天确认状态，再扩大到 30 天、60 天或 2 个月。</p>
+                <div class="inbox-sync-toolbar">
+                  <div class="inbox-sync-window-group" role="radiogroup" aria-label="收件箱同步时间范围">
+                    <label class="inbox-sync-window-option">
+                      <input type="radio" name="inbox-sync-window" value="today">
+                      <span>今天</span>
+                    </label>
+                    <label class="inbox-sync-window-option">
+                      <input type="radio" name="inbox-sync-window" value="7d" checked>
+                      <span>最近 7 天</span>
+                    </label>
+                    <label class="inbox-sync-window-option">
+                      <input type="radio" name="inbox-sync-window" value="30d">
+                      <span>最近 30 天</span>
+                    </label>
+                    <label class="inbox-sync-window-option">
+                      <input type="radio" name="inbox-sync-window" value="60d">
+                      <span>最近 60 天</span>
+                    </label>
+                    <label class="inbox-sync-window-option">
+                      <input type="radio" name="inbox-sync-window" value="2m">
+                      <span>最近 2 个月</span>
+                    </label>
+                    <label class="inbox-sync-window-option inbox-sync-window-option-custom">
+                      <input type="radio" name="inbox-sync-window" value="custom">
+                      <span>自定义</span>
+                    </label>
+                  </div>
+                  <div class="inbox-sync-custom-row">
+                    <label class="field">
+                      <span>自定义范围</span>
+                      <input id="inbox-sync-custom-value" type="number" min="1" step="1" placeholder="例如：2">
+                    </label>
+                    <label class="field">
+                      <span>单位</span>
+                      <select id="inbox-sync-custom-unit">
+                        <option value="day">天</option>
+                        <option value="month">月</option>
+                        <option value="year">年</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="button-row inbox-sync-actions">
+                    <button id="inbox-sync-latest" class="button secondary" type="button">同步所选范围</button>
+                    <button id="inbox-sync-all" class="button ghost" type="button">同步全部</button>
+                  </div>
+                </div>
+                <p class="field-hint">“今天”按当天 00:00 起算；自定义“月 / 年”按自然月、自然年回溯。</p>
+              </section>
+
+              <section class="task-step" aria-label="步骤二 解析保存">
+                <div class="task-step-head">
+                  <span class="task-step-index">步骤 2</span>
+                  <strong>收件箱解析保存</strong>
+                </div>
+                <p class="task-step-copy">同步完成后，直接继续解析并保存到本地目录，不需要再回到页面顶部找下一步。</p>
+                <div class="button-row">
+                  <button id="inbox-save" class="button" type="button">收件箱解析保存</button>
+                </div>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <section id="section-links" class="workspace-section" aria-label="链接保存工作区">
+          <div class="workspace-section-head">
+            <div>
+              <p class="card-kicker">链接保存</p>
+              <h2>分享文本与链接顺序保存</h2>
+            </div>
+            <p class="workspace-section-lead">粘贴分享文案、多个链接或混合文本，系统会自动识别支持的 URL 并顺序保存。</p>
+          </div>
+
+          <form id="links-form" class="workspace-form">
+            <label class="field">
+              <span>分享文本或多行链接</span>
+              <textarea id="links-text" name="text" rows="8" placeholder="把分享文案、多个小红书链接或混合文本粘贴到这里"></textarea>
+            </label>
+            <div class="button-row">
+              <button id="links-submit" class="button" type="submit">开始保存链接</button>
+              <button id="links-clear" class="button ghost" type="button">清空文本</button>
+            </div>
+          </form>
+        </section>
+      </div>
+
+      <section id="section-results" class="result-card">
+        <section id="error-banner" class="error-banner" hidden>
+          <div class="error-banner-head">
+            <strong id="error-title">失败</strong>
+            <button id="error-dismiss" class="icon-button" type="button" aria-label="关闭提示">×</button>
+          </div>
+          <p id="error-message" class="error-message"></p>
+          <ul id="error-hints" class="error-hints"></ul>
+          <div id="error-actions" class="error-actions" hidden></div>
+        </section>
+        <div class="result-head">
+          <div class="result-head-copy">
+            <h2>执行结果</h2>
+            <p id="status-text">等待任务开始</p>
+          </div>
+          <div class="result-actions">
+            <button id="retry-failed-results" class="button ghost" type="button" disabled>重试异常项</button>
+            <button id="open-output-folder" class="button ghost" type="button" disabled>打开输出文件夹</button>
+          </div>
+        </div>
+        <div id="progress-list" class="progress-list" hidden></div>
+        <section id="task-log-panel" class="task-log-panel" aria-label="执行日志" hidden>
+          <div class="task-log-head">
+            <strong>执行日志</strong>
+            <span>逐条显示开始、成功、失败与中断位置</span>
+          </div>
+          <ol id="task-log-list" class="task-log-list" hidden></ol>
+        </section>
+        <div id="result-summary" class="result-summary">
+          <section class="result-empty-state" aria-label="结果区空状态">
+            <div class="result-empty-copy">
+              <strong>还没有执行任务</strong>
+              <p>结果区会显示进度、分类、警告与失败重试。先从左侧选择一个入口开始，完成后这里会自动刷新。</p>
+            </div>
+            <div class="result-empty-sources" aria-label="当前支持的内容来源">
+              <span class="chip">小红书</span>
+              <span class="chip">公众号</span>
+              <span class="chip">知乎</span>
+              <span class="chip">CSDN</span>
+            </div>
+            <ul class="result-empty-list">
+              <li>临时批量保存：直接粘贴分享文本或多行链接。</li>
+              <li>外部同步入口：先同步收件箱，再执行解析保存。</li>
+              <li>任务完成后：可在这里筛选分类、重试异常项、打开输出目录。</li>
+            </ul>
+          </section>
+        </div>
+        <details id="raw-report" class="raw-report">
+          <summary>原始报告（JSON）</summary>
+          <pre id="result-output" class="result-output">暂无输出</pre>
+        </details>
+      </section>
+    </section>
+  </main>
+
+  <div id="settings-overlay" class="modal-overlay" hidden></div>
+  <div id="settings-modal" class="modal" hidden>
+    <div class="modal-head">
+      <div>
+        <h2>保存设置</h2>
+        <p>仅影响本页面请求，不会改变 CLI 默认行为。</p>
+      </div>
+      <button id="close-settings" class="icon-button" type="button" aria-label="关闭设置">×</button>
+    </div>
+    <form id="config-form" class="modal-body">
+      <section class="settings-intro" aria-label="设置说明">
+        <p class="settings-kicker">按场景分组</p>
+        <p>常用保存项默认放在第一组。先选左侧分组，再改具体字段，保存按钮会始终固定在底部，避免滚到底部才看见。</p>
+      </section>
+
+      <div class="settings-layout">
+        <div class="settings-tablist" role="tablist" aria-label="设置分组">
+          <button id="settings-tab-basic" class="settings-tab" data-settings-tab="basic" type="button" role="tab" aria-controls="settings-panel-basic">
+            <strong>基础保存</strong>
+            <span>路径、命名和最常改的保存规则</span>
+          </button>
+          <button id="settings-tab-browser" class="settings-tab" data-settings-tab="browser" type="button" role="tab" aria-controls="settings-panel-browser">
+            <strong>浏览器接入</strong>
+            <span>登录会话、当前 Chrome 接管与无头运行</span>
+          </button>
+          <button id="settings-tab-inbox" class="settings-tab" data-settings-tab="inbox" type="button" role="tab" aria-controls="settings-panel-inbox">
+            <strong>外部入口</strong>
+            <span>Pushbullet 与收件箱归档分类</span>
+          </button>
+          <button id="settings-tab-advanced" class="settings-tab" data-settings-tab="advanced" type="button" role="tab" aria-controls="settings-panel-advanced">
+            <strong>高级参数</strong>
+            <span>AI、OCR、超时和展示控制</span>
+          </button>
+        </div>
+
+        <div class="settings-panels">
+          <section id="settings-panel-basic" class="settings-panel" data-settings-panel="basic" role="tabpanel" aria-labelledby="settings-tab-basic">
+            <div class="panel-section">
+              <h3>路径设置</h3>
+              <label class="field">
+                <span>链接保存输出目录</span>
+                <input id="path-links-output" type="text" placeholder="默认：output/单条笔记保存">
+              </label>
+              <label class="field">
+                <span>链接保存图片目录</span>
+                <input id="path-links-images" type="text" placeholder="默认：output/_images">
+              </label>
+              <label class="field">
+                <span>收藏夹同步输出目录</span>
+                <input id="path-collection-output" type="text" placeholder="默认：output/">
+              </label>
+              <label class="field">
+                <span>小红书收藏原始数据路径</span>
+                <input id="path-collection-raw" type="text" placeholder="默认：data/raw_notes.json">
+              </label>
+            </div>
+
+            <div class="panel-section">
+              <h3>命名规则</h3>
+              <label class="field">
+                <span>冲突处理策略</span>
+                <select id="naming-strategy">
+                  <option value="content-aware">正文一致覆盖，正文不同自动加后缀</option>
+                  <option value="overwrite">无条件覆盖</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>标题最长字符数</span>
+                <input id="naming-max-length" type="number" min="10" max="120" step="1" placeholder="默认 80">
+              </label>
+            </div>
+          </section>
+
+          <section id="settings-panel-browser" class="settings-panel" data-settings-panel="browser" role="tabpanel" aria-labelledby="settings-tab-browser" hidden>
+            <div class="panel-section">
+              <h3>浏览器接入</h3>
+              <label class="field">
+                <span>浏览器模式</span>
+                <select id="browser-mode">
+                  <option value="current-browser">复用当前 Chrome 146+ 会话（默认，单会话更稳）</option>
+                  <option value="isolated">隔离调试浏览器（需要时再用）</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>当前浏览器通道</span>
+                <select id="browser-channel">
+                  <option value="stable">stable</option>
+                  <option value="beta">beta</option>
+                  <option value="canary">canary</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>显式浏览器地址（可选）</span>
+                <input id="browser-url" type="text" placeholder="例如：http://127.0.0.1:9222">
+              </label>
+              <label class="toggle">
+                <input id="browser-headless" type="checkbox">
+                <span>后台无头运行（实验）</span>
+              </label>
+              <div class="button-row">
+                <button id="open-login-browser" class="button secondary" type="button">打开项目登录浏览器</button>
+              </div>
+              <p class="field-hint">默认建议复用当前已登录 Chrome，会话更单一，也更不容易因为额外窗口和并行操作把自己推到风控边缘。</p>
+              <p class="field-hint">如果必须用隔离调试浏览器，先打开项目登录浏览器并手动登录一次；后续会复用同一 profile，不建议同时活跃运行多个项目窗口。</p>
+            </div>
+          </section>
+
+          <section id="settings-panel-inbox" class="settings-panel" data-settings-panel="inbox" role="tabpanel" aria-labelledby="settings-tab-inbox" hidden>
+            <div class="panel-section">
+              <h3>外部入口设置</h3>
+              <label class="toggle">
+                <input id="pushbullet-enabled" type="checkbox">
+                <span>启用 Pushbullet</span>
+              </label>
+              <label class="field">
+                <span>Pushbullet Access Token</span>
+                <input id="pushbullet-token" type="password" autocomplete="new-password" placeholder="在 Pushbullet 账号设置中获取">
+              </label>
+              <label class="field">
+                <span>收件箱文件路径</span>
+                <input id="inbox-path" type="text" placeholder="默认：data/inbox_links.jsonl">
+              </label>
+            </div>
+
+            <div class="panel-section">
+              <h3>收件箱分类规则</h3>
+              <label class="field">
+                <span>分类规则 (JSON)</span>
+                <textarea id="inbox-categories" rows="8" placeholder='{"AI":["GPT"],"理财":["ETF"]}'></textarea>
+              </label>
+            </div>
+          </section>
+
+          <section id="settings-panel-advanced" class="settings-panel" data-settings-panel="advanced" role="tabpanel" aria-labelledby="settings-tab-advanced" hidden>
+            <div class="panel-section">
+              <h3>运行参数</h3>
+              <div class="toggle-row">
+                <label class="toggle">
+                  <input id="runtime-auto-classify" type="checkbox">
+                  <span>保存链接时自动分类</span>
+                </label>
+                <label class="toggle">
+                  <input id="runtime-ai" type="checkbox">
+                  <span>AI 总结与标签</span>
+                </label>
+                <label class="toggle">
+                  <input id="runtime-vision" type="checkbox">
+                  <span>Vision OCR</span>
+                </label>
+                <label class="toggle">
+                  <input id="runtime-ocr-fallback" type="checkbox">
+                  <span>OCR 兜底</span>
+                </label>
+              </div>
+              <label class="field">
+                <span>AI API 地址</span>
+                <input id="runtime-openrouter-base-url" type="text" placeholder="默认：https://openrouter.ai/api/v1">
+              </label>
+              <label class="field">
+                <span>AI API Key</span>
+                <input id="runtime-openrouter-api-key" type="password" autocomplete="new-password" placeholder="输入新值可覆盖已保存 Key">
+              </label>
+              <label class="field">
+                <span>AI 模型</span>
+                <input id="runtime-openrouter-model" type="text" placeholder="默认：openrouter/free">
+              </label>
+              <div class="button-row">
+                <button id="runtime-openrouter-test" class="button ghost" type="button">测试 AI API</button>
+              </div>
+              <p id="runtime-openrouter-test-status" class="field-hint">运行前会先检查 AI API 联通性；失败时会在日志里提示你检查地址、Key 或切换接口。</p>
+              <label class="field">
+                <span>OpenRouter 超时 (ms)</span>
+                <input id="runtime-openrouter-timeout" type="number" min="1000" step="1000" placeholder="默认 30000">
+              </label>
+              <label class="field">
+                <span>Vision OCR 超时 (ms)</span>
+                <input id="runtime-vision-timeout" type="number" min="1000" step="1000" placeholder="默认 60000">
+              </label>
+              <label class="field">
+                <span>每条笔记最多 OCR 图片数</span>
+                <input id="runtime-max-images" type="number" min="1" max="50" step="1" placeholder="默认 12">
+              </label>
+              <p class="field-hint">开启后，普通链接保存会优先根据标题、正文摘要和标签自动归到 AI、工具等主题目录；关闭后保持来源目录，如“微信公众号文章”“知乎文章”。</p>
+            </div>
+
+            <div class="panel-section">
+              <h3>展示</h3>
+              <label class="toggle">
+                <input id="ui-show-raw" type="checkbox">
+                <span>显示原始报告 JSON</span>
+              </label>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <div class="button-row">
+          <button id="config-save" class="button" type="submit">保存设置</button>
+          <button id="config-reload" class="button ghost" type="button">重新加载</button>
+        </div>
+        <p id="config-status" class="status-text">配置未保存</p>
+      </div>
+    </form>
+  </div>
+
+  <script src="/ui_helpers.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
+

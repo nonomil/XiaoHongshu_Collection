@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>视频总结工作台</title>
+    <link rel="stylesheet" href="{{ request.url_for('static', path='app.css') }}" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <aside class="hero-panel">
+        <div class="brand-pill">Video Summary Studio</div>
+        <h1>把视频批量整理成图文教程笔记</h1>
+        <p class="hero-copy">
+          一次输入多个链接，自动生成同目录 Markdown，统一把图片放进
+          <code>img/&lt;文档名&gt;.assets/</code>，同时保留完整记录目录与版本快照。
+        </p>
+        <div class="runtime-note">
+          <span class="runtime-label">当前访问地址</span>
+          <a class="runtime-link" href="{{ launch_origin }}">{{ launch_origin }}</a>
+          <p class="runtime-copy">如果启动脚本自动切换了端口，这里显示的就是当前实际可访问地址。</p>
+        </div>
+        <div class="hero-grid">
+          <article>
+            <strong>支持站点</strong>
+            <span>B 站、YouTube、小红书视频笔记，以及其他 yt-dlp 支持的视频站点</span>
+          </article>
+          <article>
+            <strong>导出方式</strong>
+            <span>批次文件夹内扁平 Markdown，多视频共享一个 <code>img</code></span>
+          </article>
+          <article>
+            <strong>摘要模式</strong>
+            <span>默认本地抽取式，可选 OpenAI 兼容增强摘要</span>
+          </article>
+          <article>
+            <strong>运行方式</strong>
+            <span>本地队列执行，页面内显示处理进度和结果路径</span>
+          </article>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <section class="card form-card">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">任务配置</p>
+              <h2>批量生成教程笔记</h2>
+            </div>
+            <span class="head-badge">本地优先</span>
+          </div>
+
+          <form id="job-form" class="job-form">
+            <label class="field full">
+              <span>视频链接</span>
+              <textarea
+                name="urls_text"
+                rows="6"
+                placeholder="每行一个链接，例如：&#10;https://b23.tv/1SzaT3c&#10;https://youtu.be/demo&#10;https://www.xiaohongshu.com/explore/demo"
+                required
+              ></textarea>
+            </label>
+
+            <div id="platform-warning" class="platform-warning" hidden>
+              检测到小红书链接。小红书视频笔记通常需要 cookies 才能拿到完整页面详情，建议填写
+              <code>www.xiaohongshu.com_cookies.txt</code>；否则可能提示“页面详情为空”。
+            </div>
+
+            <div class="field-row">
+              <label class="field">
+                <span>批次输出根目录</span>
+                <input
+                  type="text"
+                  name="output_root"
+                  value="{{ preferences.output_root }}"
+                  placeholder="例如：G:\UserCode\视频总结文档\docs\output\web-batches"
+                />
+              </label>
+              <label class="field">
+                <span>批次文件夹名称</span>
+                <input
+                  type="text"
+                  name="batch_name"
+                  value="{{ preferences.batch_name }}"
+                  placeholder="留空则自动带时间戳"
+                />
+              </label>
+            </div>
+
+            <div class="field-row">
+              <label class="field">
+                <span>Cookies 文件</span>
+                <input
+                  type="text"
+                  name="cookies_path"
+                  value="{{ preferences.cookies_path }}"
+                  placeholder="B 站 / 小红书需要登录态时可填写 cookies.txt 路径"
+                />
+              </label>
+              <label class="field">
+                <span>摘要风格</span>
+                <select name="summary_style">
+                  <option value="tutorial-note" {% if preferences.summary_style == 'tutorial-note' %}selected{% endif %}>tutorial-note</option>
+                  <option value="default" {% if preferences.summary_style == 'default' %}selected{% endif %}>default</option>
+                  <option value="concise" {% if preferences.summary_style == 'concise' %}selected{% endif %}>concise</option>
+                  <option value="action-note" {% if preferences.summary_style == 'action-note' %}selected{% endif %}>action-note</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="field-row">
+              <label class="field">
+                <span>字幕 / ASR</span>
+                <select name="transcriber">
+                  <option value="auto" {% if preferences.transcriber == 'auto' %}selected{% endif %}>auto</option>
+                  <option value="none" {% if preferences.transcriber == 'none' %}selected{% endif %}>none</option>
+                  <option value="faster-whisper" {% if preferences.transcriber == 'faster-whisper' %}selected{% endif %}>faster-whisper</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Whisper 模型</span>
+                <input type="text" name="whisper_model" value="{{ preferences.whisper_model }}" />
+              </label>
+            </div>
+
+            <div class="field-row">
+              <label class="field">
+                <span>截图模式</span>
+                <select name="screenshot_mode">
+                  <option value="smart" {% if preferences.screenshot_mode == 'smart' %}selected{% endif %}>smart</option>
+                  <option value="quick" {% if preferences.screenshot_mode == 'quick' %}selected{% endif %}>quick</option>
+                  <option value="none" {% if preferences.screenshot_mode == 'none' %}selected{% endif %}>none</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>截图密度</span>
+                <input type="number" min="1" max="18" name="screenshot_count" value="{{ preferences.screenshot_count }}" />
+              </label>
+            </div>
+
+            <section class="ai-card">
+              <div class="section-head compact">
+                <div>
+                  <p class="eyebrow">可选增强</p>
+                  <h3>OpenAI 兼容摘要</h3>
+                </div>
+                <label class="switch">
+                  <input
+                    type="checkbox"
+                    name="ai_enabled"
+                    {% if preferences.openai_compatible.enabled %}checked{% endif %}
+                  />
+                  <span>启用</span>
+                </label>
+              </div>
+
+              <div class="field-row">
+                <label class="field">
+                  <span>Base URL</span>
+                  <input
+                    type="text"
+                    name="ai_base_url"
+                    value="{{ preferences.openai_compatible.base_url }}"
+                    placeholder="https://api.openai.com/v1"
+                  />
+                </label>
+                <label class="field">
+                  <span>模型名</span>
+                  <input
+                    type="text"
+                    name="ai_model"
+                    value="{{ preferences.openai_compatible.model }}"
+                    placeholder="例如：gpt-4.1-mini 或兼容模型名"
+                  />
+                </label>
+              </div>
+
+              <div class="field-row">
+                <label class="field">
+                  <span>API Key</span>
+                  <input
+                    type="password"
+                    name="ai_api_key"
+                    value="{{ preferences.openai_compatible.api_key }}"
+                    placeholder="只在本地发送，不会上报到仓库"
+                  />
+                </label>
+                <label class="field switch-card">
+                  <span>保存 API Key</span>
+                  <label class="switch">
+                    <input
+                      type="checkbox"
+                      name="remember_api_key"
+                      {% if preferences.remember_api_key %}checked{% endif %}
+                    />
+                    <span>仅保存到本机配置</span>
+                  </label>
+                </label>
+              </div>
+            </section>
+
+            <div class="form-actions">
+              <button type="submit" id="submit-button" class="primary-button">开始生成</button>
+              <p class="hint-text">
+                每次提交都会创建一个新的批次文件夹，Markdown 会直接放在批次根目录，图片统一放到
+                <code>img</code> 下的独立子文件夹。
+              </p>
+              <p class="hint-text">
+                如果批次中包含小红书视频笔记，优先准备登录后导出的 cookies 文件；匿名请求常会拿不到完整详情。
+              </p>
+            </div>
+          </form>
+        </section>
+
+        <section class="card status-card">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">运行状态</p>
+              <h2>任务进度与结果</h2>
+            </div>
+            <span id="job-badge" class="head-badge muted">空闲</span>
+          </div>
+
+          <div id="empty-state" class="empty-state">
+            <h3>还没有运行中的任务</h3>
+            <p>提交后这里会显示批次目录、逐个链接的处理状态，以及每个 Markdown 的预览入口。</p>
+          </div>
+
+          <div id="job-state" class="job-state" hidden>
+            <div class="metrics">
+              <article>
+                <span>当前任务</span>
+                <strong id="job-id">-</strong>
+              </article>
+              <article>
+                <span>批次目录</span>
+                <strong id="batch-directory">-</strong>
+              </article>
+              <article>
+                <span>状态</span>
+                <strong id="job-status-text">-</strong>
+              </article>
+            </div>
+
+            <div class="logs-panel">
+              <div class="panel-head">
+                <h3>处理日志</h3>
+              </div>
+              <ul id="job-logs" class="log-list"></ul>
+            </div>
+
+            <div class="results-panel">
+              <div class="panel-head">
+                <h3>视频结果</h3>
+              </div>
+              <div id="job-items" class="item-grid"></div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="markdown-dialog" class="markdown-dialog">
+      <div class="dialog-head">
+        <h3 id="dialog-title">Markdown 预览</h3>
+        <button type="button" id="close-dialog" class="ghost-button">关闭</button>
+      </div>
+      <pre id="markdown-content" class="markdown-content"></pre>
+    </dialog>
+
+    <script>
+      window.app_bootstrap = {
+        initial_status: null
+      };
+    </script>
+    <script src="{{ request.url_for('static', path='app.js') }}"></script>
+  </body>
+</html>

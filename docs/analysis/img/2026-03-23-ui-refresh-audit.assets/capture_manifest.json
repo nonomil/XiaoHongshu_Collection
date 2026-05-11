@@ -1,0 +1,47 @@
+{
+  "report": "2026-03-23-ui-refresh-audit",
+  "capturedAt": "2026-03-23",
+  "baseUrl": "http://127.0.0.1:3031/",
+  "items": [
+    {
+      "file": "desktop-home.png",
+      "url": "http://127.0.0.1:3031/",
+      "viewport": {
+        "width": 1440,
+        "height": 1400
+      },
+      "state": "desktop-home",
+      "note": "桌面端首页，空结果态"
+    },
+    {
+      "file": "desktop-result-opened.png",
+      "url": "http://127.0.0.1:3031/",
+      "viewport": {
+        "width": 1440,
+        "height": 1400
+      },
+      "state": "desktop-result-opened",
+      "note": "注入结果态后实际点击打开输出文件夹"
+    },
+    {
+      "file": "desktop-settings-modal.png",
+      "url": "http://127.0.0.1:3031/",
+      "viewport": {
+        "width": 1440,
+        "height": 1400
+      },
+      "state": "desktop-settings-modal",
+      "note": "桌面端设置弹层"
+    },
+    {
+      "file": "mobile-home.png",
+      "url": "http://127.0.0.1:3031/",
+      "viewport": {
+        "width": 390,
+        "height": 1180
+      },
+      "state": "mobile-home",
+      "note": "移动端首页，结果区优先展示"
+    }
+  ]
+}
