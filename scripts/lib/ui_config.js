@@ -9,7 +9,7 @@ const DEFAULT_UI_CONFIG = {
     collectionRawPath: ''
   },
   browser: {
-    mode: 'isolated',
+    mode: 'current-browser',
     browserUrl: '',
     wsEndpoint: '',
     channel: 'stable',
@@ -24,9 +24,17 @@ const DEFAULT_UI_CONFIG = {
     aiSummaryEnabled: true,
     visionOcrEnabled: true,
     ocrFallbackEnabled: true,
+    openRouterBaseUrl: '',
+    openRouterModel: '',
+    hasOpenRouterApiKey: false,
     openRouterTimeoutMs: 30000,
     visionOcrTimeoutMs: 60000,
     maxImagesPerNote: 12
+  },
+  ingress: {
+    localBaseUrl: 'http://127.0.0.1:3030',
+    cloudBaseUrl: '',
+    defaultRoute: 'local'
   },
   inbox: {
     categories: {}

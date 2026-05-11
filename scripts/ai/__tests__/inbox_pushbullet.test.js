@@ -103,3 +103,25 @@ test('pushbullet provider can stop after maxItems when pulling recent messages',
   assert.equal(result.items[1].url, 'https://example.com/2');
   assert.equal(result.truncated, true);
 });
+
+test('pushbullet provider allows pull-level maxPages override for full imports', async () => {
+  let callCount = 0;
+  const mockFetch = async () => {
+    callCount += 1;
+    return {
+      ok: true,
+      json: async () => ({
+        pushes: [{ type: 'link', url: `https://example.com/${callCount}`, modified: callCount }],
+        ...(callCount < 3 ? { cursor: `c${callCount}` } : {})
+      })
+    };
+  };
+
+  const provider = createPushbulletProvider({ accessToken: 'token', fetchImpl: mockFetch, maxPages: 1 });
+  const result = await provider.pull({ since: 0, maxPages: 3 });
+
+  assert.equal(callCount, 3);
+  assert.equal(result.items.length, 3);
+  assert.equal(result.truncated, undefined);
+  assert.equal(result.pagesFetched, 3);
+});

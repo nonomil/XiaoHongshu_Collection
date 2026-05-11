@@ -1,5 +1,6 @@
 ﻿const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const http = require('node:http');
 const fs = require('fs');
 const path = require('path');
 
@@ -19,6 +20,122 @@ const {
   writeSingleNoteMarkdown
 } = require('../../lib/note_export');
 const { createTempDir } = require('./test_tmp');
+
+test('processSingleNoteExport honors runtime ai api overrides for http endpoints and comment ai calls', async () => {
+  const requests = [];
+  const server = http.createServer((request, response) => {
+    let raw = '';
+    request.on('data', (chunk) => { raw += chunk; });
+    request.on('end', () => {
+      requests.push({
+        url: request.url,
+        authorization: request.headers.authorization || '',
+        title: request.headers['x-title'] || '',
+        body: raw ? JSON.parse(raw) : {}
+      });
+
+      response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      if (requests.length === 1) {
+        response.end(JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  summary: '运行时接口摘要',
+                  tags: ['标签甲', '标签乙', '标签丙']
+                })
+              }
+            }
+          ]
+        }));
+        return;
+      }
+      if (requests.length === 2) {
+        response.end(JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  keepIndexes: [1, 2]
+                })
+              }
+            }
+          ]
+        }));
+        return;
+      }
+      response.end(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                summary: '运行时评论总结'
+              })
+            }
+          }
+        ]
+      }));
+    });
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = server.address().port;
+    const tempRoot = createTempDir('xhs-process-export-runtime-api-');
+    const imagesRoot = path.join(tempRoot, '_images');
+    const configPath = path.join(tempRoot, 'openrouter.json');
+    const visionConfigPath = path.join(tempRoot, 'vision-ocr.json');
+    fs.writeFileSync(configPath, JSON.stringify({
+      enabled: true,
+      apiKey: 'file-key',
+      baseUrl: 'https://example.com/api/v1',
+      model: 'file-model',
+      timeoutMs: 30000
+    }, null, 2), 'utf-8');
+    fs.writeFileSync(visionConfigPath, JSON.stringify({ enabled: false }, null, 2), 'utf-8');
+
+    const result = await processSingleNoteExport({
+      outputRoot: tempRoot,
+      imagesRoot,
+      configPath,
+      visionConfigPath,
+      runtime: {
+        aiSummaryEnabled: true,
+        visionOcrEnabled: false,
+        openRouterBaseUrl: `http://127.0.0.1:${port}/v1`,
+        openRouterApiKey: 'runtime-key',
+        openRouterModel: 'runtime-model',
+        openRouterTimeoutMs: 12000
+      },
+      note: {
+        title: '运行时 API 覆盖',
+        noteId: 'runtime-api-123',
+        author: '作者',
+        collection: '单条笔记保存',
+        date: '2026-04-17',
+        tags: [],
+        images: [],
+        content: '正文内容',
+        comments: [
+          { commentId: 'c1', author: '甲', content: '这里补充了工具地址和使用经验。', likeCount: 3 },
+          { commentId: 'c2', author: '乙', content: '模型切换到本地接口后更稳。', likeCount: 2 }
+        ]
+      }
+    });
+
+    assert.equal(result.summary, '运行时接口摘要');
+    assert.equal(result.commentSummary, '运行时评论总结');
+    assert.equal(requests.length, 3);
+    requests.forEach((entry) => {
+      assert.equal(entry.url, '/v1/chat/completions');
+      assert.equal(entry.authorization, 'Bearer runtime-key');
+      assert.equal(entry.body.model, 'runtime-model');
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
 
 test('buildNotePaths writes single note into 单条笔记保存', () => {
   const paths = buildNotePaths({
@@ -205,6 +322,12 @@ test('processSingleNoteExport emits comment_login_required warning for login-gat
   assert.equal(result.warnings.length, 1);
   assert.equal(result.warnings[0].code, 'comment_login_required');
   assert.match(result.warnings[0].message, /登录/);
+  assert.equal(result.comment_total, 40);
+  assert.equal(result.comment_collected, 1);
+  assert.equal(result.comment_warning_code, 'comment_login_required');
+  assert.match(result.comment_error, /登录/);
+  assert.equal(result.manual_action_required, true);
+  assert.equal(result.manual_action_reason, 'login_required');
 });
 
 test('processSingleNoteExport mirrors inbox exports into a total folder while keeping categorized copy', async () => {
@@ -508,7 +631,7 @@ test('processSingleNoteExport returns a stable result shape when comments exist'
 
   assert.deepEqual(
     Object.keys(result).sort(),
-    ['commentArchivePath', 'commentSummary', 'content', 'filepath', 'ocrTexts', 'summary', 'tags', 'usefulComments', 'warnings']
+    ['commentArchivePath', 'commentSummary', 'comment_collected', 'comment_error', 'comment_total', 'comment_warning_code', 'content', 'filepath', 'manual_action_reason', 'manual_action_required', 'ocrTexts', 'summary', 'tags', 'usefulComments', 'warnings']
   );
   assert.equal(typeof result.filepath, 'string');
   assert.equal(result.filepath.endsWith('.md'), true);
@@ -521,8 +644,14 @@ test('processSingleNoteExport returns a stable result shape when comments exist'
   assert.equal(Array.isArray(result.usefulComments), true);
   assert.equal(typeof result.commentSummary, 'string');
   assert.equal(Array.isArray(result.warnings), true);
-   assert.equal(Object.hasOwn(result, 'mirrorFilepaths'), false);
-   assert.equal(Object.hasOwn(result, 'mirrorCommentArchivePaths'), false);
+  assert.equal(typeof result.comment_total, 'number');
+  assert.equal(typeof result.comment_collected, 'number');
+  assert.equal(typeof result.comment_warning_code, 'string');
+  assert.equal(typeof result.comment_error, 'string');
+  assert.equal(typeof result.manual_action_required, 'boolean');
+  assert.equal(typeof result.manual_action_reason, 'string');
+  assert.equal(Object.hasOwn(result, 'mirrorFilepaths'), false);
+  assert.equal(Object.hasOwn(result, 'mirrorCommentArchivePaths'), false);
 });
 
 test('processSingleNoteExport returns a stable result shape when comments are absent', async () => {
@@ -553,7 +682,7 @@ test('processSingleNoteExport returns a stable result shape when comments are ab
 
   assert.deepEqual(
     Object.keys(result).sort(),
-    ['commentArchivePath', 'commentSummary', 'content', 'filepath', 'ocrTexts', 'summary', 'tags', 'usefulComments', 'warnings']
+    ['commentArchivePath', 'commentSummary', 'comment_collected', 'comment_error', 'comment_total', 'comment_warning_code', 'content', 'filepath', 'manual_action_reason', 'manual_action_required', 'ocrTexts', 'summary', 'tags', 'usefulComments', 'warnings']
   );
   assert.equal(typeof result.filepath, 'string');
   assert.equal(result.commentArchivePath, '');
@@ -564,8 +693,14 @@ test('processSingleNoteExport returns a stable result shape when comments are ab
   assert.equal(Array.isArray(result.usefulComments), true);
   assert.equal(typeof result.commentSummary, 'string');
   assert.equal(Array.isArray(result.warnings), true);
-   assert.equal(Object.hasOwn(result, 'mirrorFilepaths'), false);
-   assert.equal(Object.hasOwn(result, 'mirrorCommentArchivePaths'), false);
+  assert.equal(result.comment_total, 0);
+  assert.equal(result.comment_collected, 0);
+  assert.equal(result.comment_warning_code, '');
+  assert.equal(result.comment_error, '');
+  assert.equal(result.manual_action_required, false);
+  assert.equal(result.manual_action_reason, '');
+  assert.equal(Object.hasOwn(result, 'mirrorFilepaths'), false);
+  assert.equal(Object.hasOwn(result, 'mirrorCommentArchivePaths'), false);
 });
 
 test('processSingleNoteExport can resolve final collection after summary and tags are ready', async () => {

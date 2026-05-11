@@ -4,9 +4,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { JSDOM } = require('jsdom');
 
-function createDom() {
+function createDom(url = 'http://127.0.0.1:3030/') {
   const html = fs.readFileSync(path.resolve(__dirname, '../../../ui/index.html'), 'utf-8');
-  return new JSDOM(html, { url: 'http://127.0.0.1:3030/' });
+  return new JSDOM(html, { url });
 }
 
 test('open output button becomes available after save and calls api when clicked', async () => {
@@ -84,6 +84,127 @@ test('open output button becomes available after save and calls api when clicked
 
   const openCall = calls.find((entry) => entry.url.includes('/api/open-output'));
   assert.ok(openCall);
+});
+
+test('open output fallback copies the suggested folder path when system open fails', async () => {
+  const dom = createDom();
+  global.window = dom.window;
+  global.document = dom.window.document;
+  global.navigator = dom.window.navigator;
+  global.navigator.clipboard = {
+    writes: [],
+    async writeText(value) {
+      this.writes.push(String(value));
+    }
+  };
+
+  const helpersPath = path.resolve(__dirname, '../../../ui/ui_helpers.js');
+  const appPath = path.resolve(__dirname, '../../../ui/app.js');
+  delete require.cache[helpersPath];
+  delete require.cache[appPath];
+  global.window.XhsUiHelpers = require(helpersPath);
+
+  global.fetch = async (url, init) => {
+    const isGet = !init || init.method === 'GET';
+    if (String(url).includes('/api/ui-config') && isGet) {
+      return {
+        ok: true,
+        json: async () => ({ config: { paths: {}, naming: {}, runtime: {}, ui: {} } }),
+        headers: { get: () => 'application/json' }
+      };
+    }
+    if (String(url).includes('/api/save-collection')) {
+      return {
+        ok: true,
+        json: async () => ({
+          ok: true,
+          task: 'collection-export',
+          report: {
+            status: 'success',
+            outputFolder: 'G:/output/收藏导出',
+            output: {
+              steps: [
+                { script: 'extract_v4.js', code: 0 },
+                { script: 'ocr_and_write.js', code: 0 }
+              ]
+            }
+          }
+        }),
+        headers: { get: () => 'application/json' }
+      };
+    }
+    if (String(url).includes('/api/open-output')) {
+      return {
+        ok: false,
+        json: async () => ({ error: '输出目录不存在' }),
+        headers: { get: () => 'application/json' }
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({}),
+      headers: { get: () => 'application/json' }
+    };
+  };
+
+  require(appPath);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  document.getElementById('collection-submit').click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  document.getElementById('open-output-folder').click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(global.navigator.clipboard.writes, ['G:/output/收藏导出']);
+  assert.match(document.getElementById('status-text').textContent, /已复制输出路径/);
+  assert.match(document.getElementById('error-message').textContent, /可手动打开/);
+});
+
+test('workspace navigation tracks the current hash section', async () => {
+  const dom = createDom('http://127.0.0.1:3030/#section-links');
+  global.window = dom.window;
+  global.document = dom.window.document;
+  global.navigator = dom.window.navigator;
+
+  const helpersPath = path.resolve(__dirname, '../../../ui/ui_helpers.js');
+  const appPath = path.resolve(__dirname, '../../../ui/app.js');
+  delete require.cache[helpersPath];
+  delete require.cache[appPath];
+  global.window.XhsUiHelpers = require(helpersPath);
+
+  global.fetch = async (url, init) => {
+    const isGet = !init || init.method === 'GET';
+    if (String(url).includes('/api/ui-config') && isGet) {
+      return {
+        ok: true,
+        json: async () => ({ config: { paths: {}, browser: {}, naming: {}, runtime: {}, ui: {} } }),
+        headers: { get: () => 'application/json' }
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({}),
+      headers: { get: () => 'application/json' }
+    };
+  };
+
+  require(appPath);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const linksNav = document.querySelector('.workspace-nav-link[href="#section-links"]');
+  const collectionNav = document.querySelector('.workspace-nav-link[href="#section-collection"]');
+  assert.equal(linksNav.dataset.active, 'true');
+  assert.equal(linksNav.getAttribute('aria-current'), 'location');
+  assert.equal(collectionNav.dataset.active, 'false');
+
+  dom.window.location.hash = '#section-results';
+  dom.window.dispatchEvent(new dom.window.HashChangeEvent('hashchange'));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const resultsNav = document.querySelector('.workspace-nav-link[href="#section-results"]');
+  assert.equal(resultsNav.dataset.active, 'true');
+  assert.equal(linksNav.dataset.active, 'false');
 });
 
 test('retry failed button becomes available after failed link save and reuses failed urls', async () => {

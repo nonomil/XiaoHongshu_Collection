@@ -1,7 +1,7 @@
 const path = require('path');
 
 const { resolveProjectPaths } = require('./config');
-const { createInboxStore } = require('./inbox_store');
+const { createInboxStore, formatInboxBucketParts } = require('./inbox_store');
 const { classifyInboxNote, defaultInboxCategories } = require('./inbox_classifier');
 const { buildTaskSummary } = require('./report');
 const { loadPushbulletConfig } = require('./pushbullet_config');
@@ -34,6 +34,26 @@ function normalizeUrlList(urls = []) {
   return normalized;
 }
 
+function normalizeInboxItems(items = []) {
+  const seen = new Set();
+  const normalized = [];
+
+  for (const value of Array.isArray(items) ? items : []) {
+    const item = typeof value === 'string' ? { url: value } : value;
+    const url = String(item?.url || '').trim();
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    normalized.push({ ...(item || {}), url });
+  }
+
+  return normalized;
+}
+
+function resolveInboxOutputRoot(baseOutputRoot, timestamp, now = new Date()) {
+  const { year, yearMonth } = formatInboxBucketParts(timestamp, now);
+  return path.join(baseOutputRoot, year, yearMonth);
+}
+
 function normalizeSummaryResults(summary, fallbackUrl) {
   const results = Array.isArray(summary?.results) ? summary.results : [];
   if (results.length > 0) {
@@ -59,6 +79,14 @@ async function loadInboxUrls({
   inboxPath,
   storeFactory
 } = {}) {
+  const items = await loadInboxItems({ inboxPath, storeFactory });
+  return items.map((item) => item.url);
+}
+
+async function loadInboxItems({
+  inboxPath,
+  storeFactory
+} = {}) {
   if (!inboxPath) {
     throw new Error('inboxPath is required');
   }
@@ -66,18 +94,7 @@ async function loadInboxUrls({
     ? storeFactory({ inboxPath })
     : createInboxStore({ filePath: inboxPath });
   const items = await store.readAll();
-  const seen = new Set();
-  const urls = [];
-
-  for (const item of items) {
-    if (!item || !item.url) continue;
-    const url = String(item.url).trim();
-    if (!url || seen.has(url)) continue;
-    seen.add(url);
-    urls.push(url);
-  }
-
-  return urls;
+  return normalizeInboxItems(items);
 }
 
 async function saveInboxUrls({
@@ -85,30 +102,61 @@ async function saveInboxUrls({
   saveLinksText: saveLinks = saveLinksText,
   storeFactory,
   uiConfig,
-  urls
+  urls,
+  items,
+  onProgress,
+  now = new Date()
 } = {}) {
   const config = loadPushbulletConfig({ configPath: pushbulletConfigPath });
   const inboxPath = resolveInboxPath(PATHS.projectDir, config.inboxPath);
-  const targetUrls = Array.isArray(urls)
-    ? normalizeUrlList(urls)
-    : await loadInboxUrls({ inboxPath, storeFactory });
+  const targetItems = Array.isArray(items)
+    ? normalizeInboxItems(items)
+    : Array.isArray(urls)
+      ? normalizeInboxItems(normalizeUrlList(urls).map((url) => ({ url })))
+      : await loadInboxItems({ inboxPath, storeFactory });
 
-  if (targetUrls.length === 0) {
+  if (targetItems.length === 0) {
     return { total: 0, summary: null };
   }
 
   const categories = resolveInboxCategories(uiConfig);
   const results = [];
+  const targets = targetItems.map((item, index) => ({
+    index,
+    input: item.url,
+    canonicalUrl: '',
+    navigationUrl: item.url,
+    timestamp: Number(item.timestamp || 0)
+  }));
 
-  for (const url of targetUrls) {
+  if (typeof onProgress === 'function') {
+    onProgress({
+      type: 'start',
+      total: targetItems.length,
+      targets
+    });
+  }
+
+  for (let index = 0; index < targetItems.length; index += 1) {
+    const item = targetItems[index];
+    const url = item.url;
+    const outputRoot = resolveInboxOutputRoot(INBOX_OUTPUT_ROOT, item.timestamp, now);
+    if (typeof onProgress === 'function') {
+      onProgress({
+        type: 'tick',
+        index,
+        total: targetItems.length,
+        target: targets[index]
+      });
+    }
     try {
       const summary = await saveLinks(url, {
         source: 'inbox',
-        outputRoot: INBOX_OUTPUT_ROOT,
+        outputRoot,
         conflictStrategy: 'content-aware',
         mirrorTargets: [
           {
-            outputRoot: INBOX_OUTPUT_ROOT,
+            outputRoot,
             collection: '全部'
           }
         ],
@@ -118,15 +166,38 @@ async function saveInboxUrls({
           tags: note?.tags || []
         }, categories)
       });
-      results.push(...normalizeSummaryResults(summary, url));
+      const normalizedResults = normalizeSummaryResults(summary, url);
+      results.push(...normalizedResults);
+      if (typeof onProgress === 'function') {
+        onProgress({
+          type: 'progress',
+          index,
+          total: targetItems.length,
+          result: normalizedResults[0] || {
+            input: url,
+            navigationUrl: url,
+            status: 'success',
+            warnings: []
+          }
+        });
+      }
     } catch (error) {
-      results.push({
+      const failedResult = {
         input: url,
         navigationUrl: url,
         status: 'failed',
         error: formatSaveNoteError(error),
         warnings: []
-      });
+      };
+      results.push(failedResult);
+      if (typeof onProgress === 'function') {
+        onProgress({
+          type: 'progress',
+          index,
+          total: targetItems.length,
+          result: failedResult
+        });
+      }
     }
   }
 
@@ -134,10 +205,12 @@ async function saveInboxUrls({
     ...item,
     index
   })), { includeWarnings: true });
-  return { total: targetUrls.length, summary };
+  return { total: targetItems.length, summary };
 }
 
 module.exports = {
+  loadInboxItems,
   loadInboxUrls,
+  resolveInboxOutputRoot,
   saveInboxUrls
 };

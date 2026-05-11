@@ -1,6 +1,8 @@
+const http = require('http');
 const https = require('https');
 const { buildAiInput, normalizeAiResponse, parseAiResponse, fallbackSummaryTags } = require('../ai/summary');
 const { cleanTags } = require('../ai/tag_clean');
+const { normalizeOpenRouterApiKey } = require('./config');
 
 function shouldUseAiSummary(config) {
   return Boolean(
@@ -8,7 +10,7 @@ function shouldUseAiSummary(config) {
     !config._missing &&
     !config._invalid &&
     config.enabled !== false &&
-    String(config.apiKey || '').trim()
+    normalizeOpenRouterApiKey(config.apiKey)
   );
 }
 
@@ -34,10 +36,12 @@ function postJson(url, headers, body, timeoutMs) {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify(body);
     const target = new URL(url);
-    const request = https.request({
+    const client = target.protocol === 'http:' ? http : https;
+    const request = client.request({
       method: 'POST',
       protocol: target.protocol,
       hostname: target.hostname,
+      port: target.port || undefined,
       path: `${target.pathname}${target.search}`,
       headers: {
         ...headers,

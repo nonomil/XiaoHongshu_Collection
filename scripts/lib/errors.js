@@ -61,10 +61,14 @@ function classifyTaskError(error) {
   if (/ECONNREFUSED|connect ECONNREFUSED|socket hang up|ECONNRESET/i.test(message)) {
     code = 'chrome_unavailable';
     retriable = true;
+  } else if (/无登录信息|登录已失效|重新登录|login required|not logged in/i.test(message)) {
+    code = 'login_required';
   } else if (/No xiaohongshu tab found/i.test(message)) {
     code = 'no_xiaohongshu_tab';
   } else if (/Current tab is not a Xiaohongshu note detail page/i.test(message)) {
     code = 'not_note_detail';
+  } else if (/300011|账号存在异常|risk control|风控/i.test(message)) {
+    code = 'account_risk_control';
   } else if (/error_code=300031|暂时无法浏览|无法打开笔记详情页/i.test(message)) {
     code = 'note_unavailable';
   } else if (/comment.*(fail|error|failed)/i.test(message)) {

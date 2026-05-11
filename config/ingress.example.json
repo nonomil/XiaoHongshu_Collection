@@ -1,0 +1,7 @@
+{
+  "enabled": false,
+  "local_base_url": "http://127.0.0.1:3030",
+  "cloud_base_url": "https://example.com",
+  "default_route": "local",
+  "token": "REPLACE_ME"
+}

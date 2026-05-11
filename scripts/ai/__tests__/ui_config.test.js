@@ -20,7 +20,7 @@ test('loadUiConfig returns defaults when missing', () => {
   assert.equal(cfg._missing, true);
   assert.ok(cfg.paths);
   assert.ok(cfg.browser);
-  assert.equal(cfg.browser.mode, 'isolated');
+  assert.equal(cfg.browser.mode, 'current-browser');
   assert.equal(cfg.browser.channel, 'stable');
   assert.equal(cfg.browser.headless, false);
   assert.equal(cfg.naming.conflictStrategy, 'overwrite');
@@ -28,6 +28,9 @@ test('loadUiConfig returns defaults when missing', () => {
   assert.ok(cfg.inbox);
   assert.deepEqual(cfg.inbox.categories, {});
   assert.equal(cfg.runtime.autoClassifyLinksEnabled, true);
+  assert.equal(cfg.runtime.openRouterBaseUrl, '');
+  assert.equal(cfg.runtime.openRouterModel, '');
+  assert.equal(cfg.runtime.hasOpenRouterApiKey, false);
 });
 
 test('loadUiConfig provides inbox categories defaults', () => {
@@ -35,6 +38,15 @@ test('loadUiConfig provides inbox categories defaults', () => {
   const cfg = loadUiConfig({ configPath: cfgPath });
   assert.ok(cfg.inbox);
   assert.deepEqual(cfg.inbox.categories, {});
+});
+
+test('loadUiConfig provides ingress defaults', () => {
+  resetTmp();
+  const cfg = loadUiConfig({ configPath: cfgPath });
+  assert.ok(cfg.ingress);
+  assert.equal(cfg.ingress.localBaseUrl, 'http://127.0.0.1:3030');
+  assert.equal(cfg.ingress.cloudBaseUrl, '');
+  assert.equal(cfg.ingress.defaultRoute, 'local');
 });
 
 test('mergeUiConfig overlays user values', () => {
@@ -71,6 +83,50 @@ test('mergeUiConfig overlays browser headless flag', () => {
   );
 
   assert.equal(merged.browser.headless, true);
+});
+
+test('mergeUiConfig overlays ingress settings', () => {
+  const merged = mergeUiConfig(
+    {
+      ingress: {
+        localBaseUrl: 'http://127.0.0.1:3030',
+        defaultRoute: 'local'
+      }
+    },
+    {
+      ingress: {
+        cloudBaseUrl: 'https://example.com',
+        defaultRoute: 'cloud'
+      }
+    }
+  );
+
+  assert.equal(merged.ingress.localBaseUrl, 'http://127.0.0.1:3030');
+  assert.equal(merged.ingress.cloudBaseUrl, 'https://example.com');
+  assert.equal(merged.ingress.defaultRoute, 'cloud');
+});
+
+test('mergeUiConfig overlays ai runtime api fields', () => {
+  const merged = mergeUiConfig(
+    {
+      runtime: {
+        openRouterBaseUrl: 'https://openrouter.ai/api/v1',
+        openRouterModel: 'openrouter/free',
+        hasOpenRouterApiKey: false
+      }
+    },
+    {
+      runtime: {
+        openRouterBaseUrl: 'http://127.0.0.1:12345/v1',
+        openRouterModel: 'local-test-model',
+        hasOpenRouterApiKey: true
+      }
+    }
+  );
+
+  assert.equal(merged.runtime.openRouterBaseUrl, 'http://127.0.0.1:12345/v1');
+  assert.equal(merged.runtime.openRouterModel, 'local-test-model');
+  assert.equal(merged.runtime.hasOpenRouterApiKey, true);
 });
 
 test('saveUiConfig writes json file', () => {

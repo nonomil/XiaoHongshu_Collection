@@ -22,6 +22,9 @@ test('loadPushbulletConfig returns defaults when missing', () => {
   assert.equal(cfg.accessToken, '');
   assert.equal(cfg.lastModified, 0);
   assert.match(cfg.inboxPath, /data[\\/]+inbox_links\.jsonl$/);
+  assert.equal(cfg.maxPages, 50);
+  assert.equal(cfg.bootstrapMaxPages, 200);
+  assert.equal(cfg.pageLimit, 500);
 });
 
 test('loadPushbulletConfig migrates plain text token to json', () => {
@@ -33,4 +36,7 @@ test('loadPushbulletConfig migrates plain text token to json', () => {
   assert.equal(stored.accessToken, 'token-123');
   assert.equal(stored.enabled, true);
   assert.equal(stored.lastModified, 0);
+  assert.equal(stored.maxPages, 50);
+  assert.equal(stored.bootstrapMaxPages, 200);
+  assert.equal(stored.pageLimit, 500);
 });

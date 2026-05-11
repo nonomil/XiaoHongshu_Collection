@@ -69,8 +69,13 @@ function buildBaseNote({ detail, noteId, collection, account }) {
     commentError: detail.commentError || '',
     commentWarningCode: detail.commentWarningCode || '',
     commentTotal: detail.commentTotal || 0,
+    commentDiagnostics: detail.commentDiagnostics && typeof detail.commentDiagnostics === 'object'
+      ? detail.commentDiagnostics
+      : null,
     noteUrl: detail.url || '',
     noteId: noteId || '',
+    noteType: String(detail.noteType || '').trim(),
+    hasVideoMedia: detail.hasVideoMedia === true,
     collection,
     accountKey: account?.accountKey || '',
     accountUid: account?.uid || '',
@@ -106,6 +111,15 @@ function isCommentLoadMoreText(text) {
   return /更多|展开|查看|more|view/i.test(value);
 }
 
+function isReplyExpandText(text) {
+  const value = normalizeCommentControlText(text);
+  if (!value || value.length > 18) return false;
+  if (/登录/.test(value)) return false;
+  if (/展开全文|阅读全文|收起/.test(value)) return false;
+  if (!/回复/.test(value)) return false;
+  return /展开|查看|全部|更多|more|view/i.test(value);
+}
+
 function buildCommentCompletionWarning({ totalCount, actualCount, requiresLogin } = {}) {
   const total = Number(totalCount);
   const actual = Number(actualCount);
@@ -118,26 +132,316 @@ function buildCommentCompletionWarning({ totalCount, actualCount, requiresLogin 
   return `\u8bc4\u8bba\u53ef\u80fd\u672a\u5b8c\u6574\u52a0\u8f7d\uff1a\u9875\u9762\u663e\u793a\u5171 ${total} \u6761\uff0c\u5f53\u524d\u6293\u53d6 ${actual} \u6761\u3002\u53ef\u80fd\u539f\u56e0\uff1a\u7f51\u9875\u7aef\u9650\u5236\u3001\u8bc4\u8bba\u9700\u5c55\u5f00\u6216\u9700\u8981\u767b\u5f55/\u6253\u5f00\u5e94\u7528\u67e5\u770b\u66f4\u591a\u3002`;
 }
 
-function buildCommentApiFailureMessage({ code, message, status } = {}) {
-  const normalizedCode = Number.isFinite(code) ? Number(code) : code;
+function buildCommentApiFailureMessage({ code, message, status, success } = {}) {
+  const rawCode = String(code ?? '').trim();
+  const normalizedCode = rawCode && Number.isFinite(Number(rawCode)) ? Number(rawCode) : null;
+  const normalizedStatus = Number.isFinite(Number(status)) ? Number(status) : null;
   const normalizedMessage = String(message || '').trim();
+  const successMessage = /^(成功|success|ok)$/i.test(normalizedMessage);
+
+  if (
+    (success === true || normalizedStatus === 200 || normalizedStatus === 204) &&
+    (normalizedCode === null || normalizedCode === 0) &&
+    (!normalizedMessage || successMessage)
+  ) {
+    return '';
+  }
 
   if (normalizedCode === 300011) {
-    return '\u8bc4\u8bba\u63a5\u53e3\u8fd4\u56de\uff1a\u5f53\u524d\u8d26\u53f7\u5b58\u5728\u5f02\u5e38\uff0c\u8bf7\u5207\u6362\u8d26\u53f7\u6216\u91cd\u65b0\u767b\u5f55\uff0c\u964d\u4f4e\u9891\u7387\u540e\u91cd\u8bd5\u3002';
+    return '\u8bc4\u8bba\u63a5\u53e3\u8fd4\u56de\u9519\u8bef\uff1a300011\uff0c\u5f53\u524d\u8d26\u53f7\u5b58\u5728\u5f02\u5e38\uff0c\u8bf7\u5207\u6362\u8d26\u53f7\u6216\u91cd\u65b0\u767b\u5f55\uff0c\u964d\u4f4e\u9891\u7387\u540e\u91cd\u8bd5\u3002';
   }
   if (normalizedCode === -101) {
-    return '\u8bc4\u8bba\u63a5\u53e3\u8fd4\u56de\uff1a\u65e0\u767b\u5f55\u4fe1\u606f\u6216\u767b\u5f55\u5df2\u5931\u6548\uff0c\u8bf7\u5728\u6d4f\u89c8\u5668\u4e2d\u91cd\u65b0\u767b\u5f55\u540e\u91cd\u8bd5\u3002';
+    return '\u8bc4\u8bba\u63a5\u53e3\u8fd4\u56de\u9519\u8bef\uff1a-101\uff0c\u65e0\u767b\u5f55\u4fe1\u606f\u6216\u767b\u5f55\u5df2\u5931\u6548\uff0c\u8bf7\u5728\u6d4f\u89c8\u5668\u4e2d\u91cd\u65b0\u767b\u5f55\u540e\u91cd\u8bd5\u3002';
   }
-  if (normalizedCode === -1 || status === 406) {
-    return '\u8bc4\u8bba\u63a5\u53e3\u8bbf\u95ee\u53d7\u9650\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\uff0c\u5e76\u964d\u4f4e\u91c7\u96c6\u9891\u7387\u540e\u518d\u6293\u53d6\u3002';
+  if (normalizedCode === -1 || normalizedStatus === 406) {
+    return `\u8bc4\u8bba\u63a5\u53e3\u8fd4\u56de\u9519\u8bef\uff1a${normalizedStatus === 406 ? '406' : '-1'}\uff0c\u8bc4\u8bba\u63a5\u53e3\u8bbf\u95ee\u53d7\u9650\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\uff0c\u5e76\u964d\u4f4e\u91c7\u96c6\u9891\u7387\u540e\u518d\u6293\u53d6\u3002`;
   }
 
-  if (normalizedCode || normalizedMessage) {
+  if (normalizedCode !== null || normalizedMessage) {
+    const codeLabel = normalizedCode !== null ? String(normalizedCode) : 'unknown';
     const suffix = normalizedMessage ? ` - ${normalizedMessage}` : '';
-    return `\u8bc4\u8bba\u63a5\u53e3\u8fd4\u56de\u9519\u8bef\uff1a${normalizedCode || 'unknown'}${suffix}\u3002`;
+    return `\u8bc4\u8bba\u63a5\u53e3\u8fd4\u56de\u9519\u8bef\uff1a${codeLabel}${suffix}\u3002`;
   }
 
   return '';
+}
+
+function readCommentApiList(payload = {}) {
+  const root = payload && typeof payload === 'object' ? payload : {};
+  const candidates = [
+    root,
+    root.data,
+    root.data?.comments,
+    root.data?.commentPage,
+    root.data?.comment_page,
+    root.comments,
+    root.commentPage,
+    root.comment_page
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate?.list)) return candidate.list;
+    if (Array.isArray(candidate?.comments)) return candidate.comments;
+  }
+
+  return [];
+}
+
+function readCommentApiCursor(payload = {}) {
+  const root = payload && typeof payload === 'object' ? payload : {};
+  const candidates = [
+    root,
+    root.data,
+    root.data?.comments,
+    root.data?.commentPage,
+    root.data?.comment_page,
+    root.comments,
+    root.commentPage,
+    root.comment_page
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const cursor = String(candidate?.cursor || candidate?.nextCursor || '').trim();
+    if (cursor) return cursor;
+  }
+
+  return '';
+}
+
+function readCommentApiHasMore(payload = {}) {
+  const root = payload && typeof payload === 'object' ? payload : {};
+  const candidates = [
+    root,
+    root.data,
+    root.data?.comments,
+    root.data?.commentPage,
+    root.data?.comment_page,
+    root.comments,
+    root.commentPage,
+    root.comment_page
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (typeof candidate?.hasMore === 'boolean') return candidate.hasMore;
+    if (typeof candidate?.has_more === 'boolean') return candidate.has_more;
+  }
+
+  return false;
+}
+
+function normalizeCommentApiPayload(payload = {}) {
+  const root = payload && typeof payload === 'object' ? payload : {};
+  return {
+    ...root,
+    status: Number.isFinite(Number(root.status)) ? Number(root.status) : 0,
+    code: root.code ?? root.errCode ?? root.errorCode ?? null,
+    message: String(root.message || root.msg || '').trim(),
+    success: typeof root.success === 'boolean' ? root.success : undefined,
+    cursor: readCommentApiCursor(root),
+    hasMore: readCommentApiHasMore(root),
+    list: readCommentApiList(root),
+    noteId: String(root.noteId || root.note_id || '').trim(),
+    xsecToken: String(root.xsecToken || root.xsec_token || '').trim()
+  };
+}
+
+function isCommentApiPayloadSuccessful(payload = {}) {
+  const normalized = normalizeCommentApiPayload(payload);
+  const rawCode = String(normalized.code ?? '').trim();
+  const code = rawCode && Number.isFinite(Number(rawCode)) ? Number(rawCode) : null;
+  const statusOk = normalized.status === 0 || normalized.status === 200 || normalized.status === 204;
+  const successOk = normalized.success !== false;
+  return statusOk && successOk && (code === null || code === 0);
+}
+
+function buildCommentApiBlockedMessage(payload = {}) {
+  const normalized = normalizeCommentApiPayload(payload);
+  if (isCommentApiPayloadSuccessful(normalized)) {
+    return '';
+  }
+
+  const codeLabel = String(normalized.code ?? '').trim() || 'unknown';
+  return `已完成网页端可见评论与回复展开，但评论接口分页被 ${codeLabel} 拦截，无法补齐剩余评论。`;
+}
+
+function formatCommentApiTimestamp(value) {
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().replace('T', ' ').slice(0, 16);
+}
+
+function hasAuthorCommentTag(tags = []) {
+  return (Array.isArray(tags) ? tags : []).some((tag) => {
+    if (!tag) return false;
+    const label = String(tag?.name || tag?.text || tag?.type || tag || '').trim();
+    return /作者|author/i.test(label);
+  });
+}
+
+function normalizeCommentApiEntry(item, context = {}) {
+  if (!item || typeof item !== 'object') return null;
+
+  const level = Number.isFinite(Number(context.level)) ? Number(context.level) : 0;
+  const commentId = normalizeCommentField(item.id || item.commentId || item.comment_id);
+  if (!commentId) return null;
+
+  const authorInfo = item.userInfo && typeof item.userInfo === 'object'
+    ? item.userInfo
+    : (item.user && typeof item.user === 'object' ? item.user : {});
+  const rootId = normalizeCommentField(context.rootId || item.rootId || item.rootCommentId || item.root_comment_id || commentId);
+  const parentId = level > 0
+    ? normalizeCommentField(context.parentId || item.parentId || item.parent_comment_id || item.targetCommentId || rootId)
+    : '';
+
+  return {
+    commentId,
+    rootId,
+    parentId,
+    author: normalizeCommentField(authorInfo.nickname || authorInfo.name || item.author),
+    content: normalizeCommentField(item.content || item.text || item.desc),
+    date: formatCommentApiTimestamp(item.createTime || item.time),
+    level,
+    likeCount: Number.isFinite(Number(item.likeCount)) ? Number(item.likeCount) : 0,
+    replyCount: Number.isFinite(Number(item.subCommentCount || item.replyCount))
+      ? Number(item.subCommentCount || item.replyCount)
+      : 0,
+    isAuthor: hasAuthorCommentTag(item.showTags),
+    hasNonTextContent: Boolean(item.hasNonTextContent)
+  };
+}
+
+function appendNormalizedCommentApiEntries(target, item, context = {}) {
+  const entry = normalizeCommentApiEntry(item, context);
+  if (!entry) return;
+  target.push(entry);
+
+  const replies = Array.isArray(item?.subComments) ? item.subComments : [];
+  for (const reply of replies) {
+    appendNormalizedCommentApiEntries(target, reply, {
+      level: entry.level + 1,
+      parentId: entry.commentId,
+      rootId: entry.level > 0 ? entry.rootId : entry.commentId
+    });
+  }
+}
+
+function normalizeApiCommentsToCollectorShape(list = []) {
+  const normalized = [];
+  for (const item of Array.isArray(list) ? list : []) {
+    appendNormalizedCommentApiEntries(normalized, item, { level: 0 });
+  }
+  return normalized;
+}
+
+async function fetchCommentApiPageViaBrowser(ws, {
+  cursor = '',
+  noteId = '',
+  xsecToken = ''
+} = {}) {
+  const response = await send(ws, 'Runtime.evaluate', {
+    expression: `
+      (async function() {
+        const resolveList = (payload) => {
+          const root = payload && typeof payload === 'object' ? payload : {};
+          const candidates = [
+            root,
+            root.data,
+            root.data && root.data.comments,
+            root.data && (root.data.commentPage || root.data.comment_page),
+            root.comments,
+            root.commentPage || root.comment_page
+          ].filter(Boolean);
+          for (const candidate of candidates) {
+            if (Array.isArray(candidate.list)) return candidate.list;
+            if (Array.isArray(candidate.comments)) return candidate.comments;
+          }
+          return [];
+        };
+        const resolveCursor = (payload) => {
+          const root = payload && typeof payload === 'object' ? payload : {};
+          const candidates = [
+            root,
+            root.data,
+            root.data && root.data.comments,
+            root.data && (root.data.commentPage || root.data.comment_page),
+            root.comments,
+            root.commentPage || root.comment_page
+          ].filter(Boolean);
+          for (const candidate of candidates) {
+            const next = String(candidate.cursor || candidate.nextCursor || '').trim();
+            if (next) return next;
+          }
+          return '';
+        };
+        const resolveHasMore = (payload) => {
+          const root = payload && typeof payload === 'object' ? payload : {};
+          const candidates = [
+            root,
+            root.data,
+            root.data && root.data.comments,
+            root.data && (root.data.commentPage || root.data.comment_page),
+            root.comments,
+            root.commentPage || root.comment_page
+          ].filter(Boolean);
+          for (const candidate of candidates) {
+            if (typeof candidate.hasMore === 'boolean') return candidate.hasMore;
+            if (typeof candidate.has_more === 'boolean') return candidate.has_more;
+          }
+          return false;
+        };
+
+        const inputNoteId = ${JSON.stringify(String(noteId || '').trim())};
+        const inputCursor = ${JSON.stringify(String(cursor || '').trim())};
+        const inputXsecToken = ${JSON.stringify(String(xsecToken || '').trim())};
+        const state = window.__INITIAL_STATE__ || {};
+        const noteMap = state.note && state.note.noteDetailMap ? state.note.noteDetailMap : {};
+        const pathMatch = (location.pathname || '').match(/\\/(?:explore|discovery\\/item)\\/([A-Za-z0-9]+)/i);
+        const noteIdFromUrl = inputNoteId || (pathMatch ? pathMatch[1] : '');
+        const noteKey = noteIdFromUrl && noteMap[noteIdFromUrl]
+          ? noteIdFromUrl
+          : (Object.keys(noteMap).find((key) => key && noteMap[key] && noteMap[key].note) || noteIdFromUrl);
+        const commentState = noteKey && noteMap[noteKey] ? noteMap[noteKey].comments : null;
+        const cursorValue = inputCursor || (commentState && commentState.cursor ? commentState.cursor : '');
+        const xsecTokenValue = inputXsecToken || new URL(location.href).searchParams.get('xsec_token') || '';
+        if (!noteIdFromUrl) {
+          return JSON.stringify({ status: 0, code: 0, message: '', success: true, cursor: '', hasMore: false, list: [] });
+        }
+        const api = 'https://edith.xiaohongshu.com/api/sns/web/v2/comment/page';
+        const params = new URLSearchParams({
+          note_id: noteIdFromUrl,
+          cursor: cursorValue,
+          top_comment_id: '',
+          image_formats: 'jpg,webp',
+          xsec_token: xsecTokenValue
+        });
+        const url = api + '?' + params.toString();
+        const res = await fetch(url, { credentials: 'include' });
+        let body = {};
+        try {
+          body = await res.json();
+        } catch (error) {
+          body = { message: await res.text() };
+        }
+        return JSON.stringify({
+          status: res.status,
+          code: body.code,
+          message: body.msg || body.message || '',
+          success: body.success,
+          cursor: resolveCursor(body),
+          hasMore: resolveHasMore(body),
+          list: resolveList(body),
+          noteId: noteIdFromUrl,
+          xsecToken: xsecTokenValue
+        });
+      })()
+    `,
+    returnByValue: true,
+    awaitPromise: true
+  });
+
+  return normalizeCommentApiPayload(JSON.parse(response?.result?.value || '{}'));
 }
 
 function resolveCommentWarningCode({ totalCount, actualCount, requiresLogin, commentError } = {}) {
@@ -160,7 +464,7 @@ function resolveCommentWarningCode({ totalCount, actualCount, requiresLogin, com
   return '';
 }
 
-async function resolveCommentError({ comments, state, probeApi, onWarning } = {}) {
+async function resolveCommentError({ comments, state, probeApi, apiStatus, onWarning } = {}) {
   const list = Array.isArray(comments) ? comments : [];
   const warning = buildCommentCompletionWarning({
     totalCount: state?.totalCount,
@@ -169,19 +473,31 @@ async function resolveCommentError({ comments, state, probeApi, onWarning } = {}
   });
   if (!warning) return '';
 
-  if (typeof probeApi === 'function') {
+  let resolvedApiStatus = apiStatus ? normalizeCommentApiPayload(apiStatus) : null;
+  if (!resolvedApiStatus && typeof probeApi === 'function') {
     try {
-      const apiStatus = await probeApi();
-      const apiWarning = buildCommentApiFailureMessage(apiStatus || {});
-      if (apiWarning) {
-        const combined = `${warning} ${apiWarning}`;
-        if (typeof onWarning === 'function') {
-          onWarning(combined);
-        }
-        return combined;
-      }
+      resolvedApiStatus = normalizeCommentApiPayload(await probeApi());
     } catch (_) {
-      // ignore api probe errors
+      resolvedApiStatus = null;
+    }
+  }
+
+  if (resolvedApiStatus) {
+    const apiBlockedMessage = buildCommentApiBlockedMessage(resolvedApiStatus);
+    const apiWarning = buildCommentApiFailureMessage(resolvedApiStatus || {});
+    if (apiBlockedMessage) {
+      const combined = [warning, apiBlockedMessage, apiWarning].filter(Boolean).join(' ');
+      if (typeof onWarning === 'function') {
+        onWarning(combined);
+      }
+      return combined;
+    }
+    if (apiWarning) {
+      const combined = `${warning} ${apiWarning}`;
+      if (typeof onWarning === 'function') {
+        onWarning(combined);
+      }
+      return combined;
     }
   }
 
@@ -409,6 +725,7 @@ const COMMENT_RETRY_MAX_MS = resolveNumberEnv(process.env.XHS_COMMENT_RETRY_MAX_
 const COMMENT_MAX_ROUNDS_DEFAULT = 20;
 const COMMENT_NO_CHANGE_ROUNDS_DEFAULT = 12;
 const REPLY_MAX_ROUNDS_DEFAULT = 20;
+const COMMENT_API_MAX_PAGES = resolveNumberEnv(process.env.XHS_COMMENT_API_MAX_PAGES, 5);
 const COMMENT_NON_TEXT_PLACEHOLDER = '[\u975e\u6587\u672c\u5185\u5bb9]';
 
 function logCommentDebug(label, state) {
@@ -943,6 +1260,24 @@ async function clickNextReplyExpander(ws, options = {}) {
         return JSON.stringify({ clicked: false });
       }
 
+      const showMoreNodes = Array.from(commentsRoot.querySelectorAll('.show-more, [class*="show-more"]'));
+      for (const node of showMoreNodes) {
+        if (node && node.dataset && node.dataset.xhsReplyCollectorClicked === '1') continue;
+        const text = (node.textContent || '').trim();
+        const value = String(text || '').replace(/\\s+/g, ' ').trim();
+        if (!value || value.length > 18) continue;
+        if (/\\u767b\\u5f55/.test(value)) continue;
+        if (/\\u5c55\\u5f00\\u5168\\u6587|\\u9605\\u8bfb\\u5168\\u6587|\\u6536\\u8d77/.test(value)) continue;
+        if (!/\\u56de\\u590d/.test(value)) continue;
+        if (!/\\u5c55\\u5f00|\\u67e5\\u770b|\\u5168\\u90e8|\\u66f4\\u591a|more|view/i.test(value)) continue;
+        node.scrollIntoView({ block: 'center' });
+        if (node && node.dataset) {
+          node.dataset.xhsReplyCollectorClicked = '1';
+        }
+        node.click();
+        return JSON.stringify({ clicked: true, count: 0, source: 'show_more' });
+      }
+
       const nodes = Array.from(
         commentsRoot.querySelectorAll('.comment-item:not(.comment-item-sub) .reply.icon-container, .comment-item:not(.comment-item-sub) .reply')
       );
@@ -969,6 +1304,26 @@ async function clickNextReplyExpander(ws, options = {}) {
     ? JSON.parse(result || '{}')
     : (result || {});
   return !!payload.clicked;
+}
+
+async function resetCommentInteractionMarkers(ws, options = {}) {
+  const evaluate = options.evaluate || ((expression) => evaluateJson(ws, expression));
+  await evaluate(`
+    (function() {
+      const root = document.querySelector('#noteContainer') || document;
+      const commentsRoot = root.querySelector('.comments-container, .comments-el');
+      if (!commentsRoot) {
+        return JSON.stringify({ cleared: 0 });
+      }
+      const nodes = Array.from(commentsRoot.querySelectorAll('[data-xhs-collector-clicked], [data-xhs-reply-collector-clicked]'));
+      for (const node of nodes) {
+        if (!node || !node.dataset) continue;
+        delete node.dataset.xhsCollectorClicked;
+        delete node.dataset.xhsReplyCollectorClicked;
+      }
+      return JSON.stringify({ cleared: nodes.length });
+    })()
+  `);
 }
 
 async function expandAllReplies(ws, maxRounds, options = {}) {
@@ -1310,7 +1665,6 @@ async function sweepVirtualizedComments(ws, options = {}) {
 
 function shouldLoadMoreComments(state) {
   if (!state) return false;
-  if (state.requiresLogin) return false;
   if (state.buttonCount > 0) return true;
   if (state.reachedEnd) return false;
   if (state.totalCount > 0) {
@@ -1320,7 +1674,8 @@ function shouldLoadMoreComments(state) {
 }
 
 function shouldSkipCommentSweep(state) {
-  return Boolean(state?.requiresLogin);
+  if (!state?.requiresLogin) return false;
+  return Number(state?.commentCount || 0) <= 0;
 }
 
 function shouldPrimeComments(state) {
@@ -1449,16 +1804,19 @@ async function expandAllComments(ws, maxRounds, options = {}) {
   };
   let noChangeRounds = 0;
 
-  let currentState = await ensureCommentsReady(ws, options.readyAttempts || 4, {
-    readState,
-    scrollMore,
-    waitForStateChange,
-    wait,
-    attempts: options.attempts,
-    intervalMs: options.intervalMs,
-    throttleMs,
-    throttleJitterMs
-  });
+  let currentState = options.initialState;
+  if (!currentState) {
+    currentState = await ensureCommentsReady(ws, options.readyAttempts || 4, {
+      readState,
+      scrollMore,
+      waitForStateChange,
+      wait,
+      attempts: options.attempts,
+      intervalMs: options.intervalMs,
+      throttleMs,
+      throttleJitterMs
+    });
+  }
   logCommentDebug('expand:init', currentState);
 
   for (let round = 0; round < maxRoundsSafe; round += 1) {
@@ -1466,8 +1824,16 @@ async function expandAllComments(ws, maxRounds, options = {}) {
 
     let advanced = false;
     if (currentState.buttonCount > 0) {
-      advanced = await clickNext();
-      if (!advanced) {
+      const clicked = await clickNext();
+      if (clicked) {
+        advanced = true;
+        try {
+          const scrolled = await scrollMore();
+          advanced = Boolean(scrolled || advanced);
+        } catch (_) {
+          // 展开后允许继续等待，不因为补一次滚动失败就中断
+        }
+      } else {
         advanced = await scrollMore();
       }
     } else {
@@ -1571,10 +1937,21 @@ async function extractNoteCommentsLegacy(ws) {
   return Array.isArray(result.comments) ? result.comments : [];
 }
 
-async function extractNoteComments(ws) {
-  const accumulator = createCommentAccumulator();
+async function prepareNoteCommentCollection(ws, options = {}) {
+  const accumulator = options.accumulator || createCommentAccumulator();
+  const readSnapshot = options.readSnapshot || (() => readVisibleComments(ws));
+  const readState = options.readState || (() => readCommentExpansionState(ws));
+  const wait = options.wait || sleep;
+  const ensureCommentsReadyFn = options.ensureCommentsReady || ensureCommentsReady;
+  const waitForCommentStateChangeFn = options.waitForStateChange || waitForCommentStateChange;
+  const resetMarkersFn = options.resetMarkers || (() => resetCommentInteractionMarkers(ws));
+  const throttleMs = Number.isFinite(options.throttleMs) ? options.throttleMs : COMMENT_THROTTLE_MS;
+  const throttleJitterMs = Number.isFinite(options.throttleJitterMs)
+    ? options.throttleJitterMs
+    : COMMENT_THROTTLE_JITTER_MS;
+
   const addSnapshot = async (label = '') => {
-    const snapshot = await readVisibleComments(ws);
+    const snapshot = await readSnapshot();
     const before = accumulator.size;
     const result = accumulator.addSnapshot(snapshot);
     if (DEBUG_COMMENTS) {
@@ -1583,10 +1960,16 @@ async function extractNoteComments(ws) {
     }
   };
 
+  try {
+    await resetMarkersFn();
+  } catch (_) {
+    // ignore marker reset failures so collection can still continue
+  }
+
   await addSnapshot('init');
 
   const waitForStateChange = async (params) => {
-    const result = await waitForCommentStateChange(params);
+    const result = await waitForCommentStateChangeFn(params);
     try {
       await addSnapshot('state');
     } catch (_) {
@@ -1602,42 +1985,128 @@ async function extractNoteComments(ws) {
     return true;
   };
 
-  await expandAllComments(ws, undefined, {
+  const readyState = await ensureCommentsReadyFn(ws, options.readyAttempts || 4, {
+    readState,
     waitForStateChange,
+    wait,
+    attempts: options.attempts,
+    intervalMs: options.intervalMs,
+    loadingAttempts: options.loadingAttempts,
+    loadingIntervalMs: options.loadingIntervalMs,
+    throttleMs,
+    throttleJitterMs
+  });
+
+  return {
+    accumulator,
+    addSnapshot,
+    readSnapshot,
+    readState,
+    readyState,
     shouldLoadMore,
+    wait,
+    waitForStateChange,
+    throttleMs,
+    throttleJitterMs
+  };
+}
+
+async function expandPreparedNoteComments(ws, context = {}, options = {}) {
+  const currentContext = context && typeof context === 'object'
+    ? context
+    : await prepareNoteCommentCollection(ws, options);
+  const readState = currentContext.readState || (() => readCommentExpansionState(ws));
+  const wait = currentContext.wait || options.wait || sleep;
+
+  await expandAllComments(ws, undefined, {
+    ...options,
+    readState,
+    wait,
+    initialState: currentContext.readyState,
+    waitForStateChange: currentContext.waitForStateChange,
+    shouldLoadMore: currentContext.shouldLoadMore,
     expandReplies: false,
-    scrollMore: () => scrollCommentsByStep(ws)
+    scrollMore: options.scrollMore || (() => scrollCommentsByStep(ws)),
+    throttleMs: currentContext.throttleMs,
+    throttleJitterMs: currentContext.throttleJitterMs
   });
 
   const postExpandState = await readCommentExpansionStateWithRetry({
-    readState: () => readCommentExpansionState(ws),
-    wait: sleep,
-    attempts: 3,
-    intervalMs: 250
+    readState,
+    wait,
+    attempts: options.postExpandAttempts || 3,
+    intervalMs: options.postExpandIntervalMs || 250
   });
+
+  return {
+    ...currentContext,
+    postExpandState
+  };
+}
+
+async function collectPreparedNoteComments(ws, context = {}, options = {}) {
+  const currentContext = context && typeof context === 'object'
+    ? context
+    : await prepareNoteCommentCollection(ws, options);
+  const accumulator = currentContext.accumulator || createCommentAccumulator();
+  const addSnapshot = currentContext.addSnapshot || (async () => {});
+  const readSnapshot = currentContext.readSnapshot || (() => readVisibleComments(ws));
+  const waitForStateChange = currentContext.waitForStateChange || ((params) => waitForCommentStateChange(params));
+  const wait = currentContext.wait || options.wait || sleep;
+  const postExpandState = currentContext.postExpandState || await readCommentExpansionStateWithRetry({
+    readState: currentContext.readState || (() => readCommentExpansionState(ws)),
+    wait,
+    attempts: options.postExpandAttempts || 3,
+    intervalMs: options.postExpandIntervalMs || 250
+  });
+
   if (shouldSkipCommentSweep(postExpandState)) {
     await addSnapshot('login-gated');
-    return accumulator.toArray();
+    return {
+      comments: accumulator.toArray(),
+      state: postExpandState,
+      context: {
+        ...currentContext,
+        postExpandState
+      }
+    };
   }
 
   await sweepVirtualizedComments(ws, {
+    ...options,
+    wait,
     onSnapshot: (list) => accumulator.addSnapshot(list),
-    readSnapshot: () => readVisibleComments(ws),
+    readSnapshot,
     expandReplies: async () => {
       await expandAllReplies(ws, undefined, {
         waitForStateChange,
-        throttleMs: Math.min(COMMENT_THROTTLE_MS, 800),
-        throttleJitterMs: Math.min(COMMENT_THROTTLE_JITTER_MS, 400)
+        throttleMs: Math.min(currentContext.throttleMs || COMMENT_THROTTLE_MS, 800),
+        throttleJitterMs: Math.min(currentContext.throttleJitterMs || COMMENT_THROTTLE_JITTER_MS, 400)
       });
     }
   });
   await addSnapshot('final');
 
-  return accumulator.toArray();
+  return {
+    comments: accumulator.toArray(),
+    state: postExpandState,
+    context: {
+      ...currentContext,
+      postExpandState
+    }
+  };
 }
 
-async function extractNoteDetail(ws) {
-  const result = await evaluateJson(ws, `
+async function extractNoteComments(ws, options = {}) {
+  const preparedContext = await prepareNoteCommentCollection(ws, options);
+  const expandedContext = await expandPreparedNoteComments(ws, preparedContext, options);
+  const collected = await collectPreparedNoteComments(ws, expandedContext, options);
+  return collected.comments;
+}
+
+async function extractNoteCoreDetail(ws, options = {}) {
+  const evaluate = options.evaluate || ((expression) => evaluateJson(ws, expression));
+  const result = await evaluate(`
     (function() {
       const root = document.querySelector('#noteContainer') || document;
       const titleEl = root.querySelector('#detail-title, .note-content .title, [class*="detail"] [class*="title"], h1');
@@ -1672,6 +2141,8 @@ async function extractNoteDetail(ws) {
         date: dateEl ? dateEl.textContent.trim() : '',
         tags,
         images,
+        noteType: stateNote && stateNote.type ? String(stateNote.type).trim() : '',
+        hasVideoMedia: !!(stateNote && typeof stateNote.video === 'object' && stateNote.video),
         stateNote
       });
     })()
@@ -1683,90 +2154,159 @@ async function extractNoteDetail(ws) {
     : [];
   result.images = domImages.length > 0 ? domImages : stateImages;
   delete result.stateNote;
+  return result;
+}
+
+async function collectNoteCommentDiagnostics(ws, options = {}) {
+  const extractComments = options.extractComments || (() => extractNoteComments(ws));
+  const retryAsyncFn = options.retryAsyncFn || retryAsync;
+  const readExpansionStateWithRetry = options.readExpansionStateWithRetry || ((params) => readCommentExpansionStateWithRetry(params));
+  const resolveCommentErrorFn = options.resolveCommentErrorFn || resolveCommentError;
+  const resolveCommentWarningCodeFn = options.resolveCommentWarningCodeFn || resolveCommentWarningCode;
+  const wait = options.wait || sleep;
+  const explicitProbeApi = options.probeApi;
+  const explicitFetchCommentApiPage = options.fetchCommentApiPage;
+
+  const result = {
+    comments: [],
+    commentError: '',
+    commentWarningCode: '',
+    commentTotal: 0,
+    commentDiagnostics: {}
+  };
 
   try {
-    result.comments = await retryAsync(
-      () => extractNoteComments(ws),
+    result.comments = await retryAsyncFn(
+      () => extractComments(),
       {
         retries: COMMENT_RETRY_COUNT,
         baseDelayMs: COMMENT_RETRY_BASE_MS,
         jitterMs: COMMENT_THROTTLE_JITTER_MS,
-        wait: sleep,
+        wait,
         onRetry: (error, attempt, delayMs) => {
           logWarn(`[XHS][comments] retry ${attempt} after ${delayMs}ms: ${error.message || error}`);
         }
       }
     );
-    result.commentError = '';
-    result.commentWarningCode = '';
     try {
-      const state = await readCommentExpansionStateWithRetry({
+      const state = await readExpansionStateWithRetry({
         readState: () => readCommentExpansionState(ws),
-        wait: sleep,
+        wait,
         attempts: 6,
         intervalMs: 500
       });
+      const domCommentCount = result.comments.length;
       result.commentTotal = Number(state?.totalCount || 0);
+      const commentDiagnostics = {
+        dom_comments_collected: domCommentCount,
+        dom_total_count: result.commentTotal,
+        reply_expand_completed: Number(state?.replyButtonCount || 0) <= 0,
+        requires_login: state?.requiresLogin === true,
+        api_probe_attempted: false,
+        api_probe_status: 0,
+        api_probe_code: null,
+        api_probe_has_more: false,
+        api_paging_attempted: false,
+        api_paging_pages: 0,
+        api_paging_added: 0,
+        api_paging_blocked: false,
+        api_paging_blocked_code: null
+      };
+      result.commentDiagnostics = commentDiagnostics;
       // API probe is used only when comments appear incomplete. Default it on so exports
       // surface actionable hints (login expired / account abnormal) without requiring extra flags.
-      const shouldProbeApi = process.env.XHS_COMMENT_PROBE_API !== '0';
-      const warning = await resolveCommentError({
+      const shouldProbeApi = typeof explicitProbeApi === 'function'
+        ? true
+        : explicitProbeApi === false
+          ? false
+          : process.env.XHS_COMMENT_PROBE_API !== '0';
+      const isIncomplete = result.commentTotal > 0 && domCommentCount < result.commentTotal;
+      const fetchCommentApiPage = shouldProbeApi
+        ? (typeof explicitFetchCommentApiPage === 'function'
+            ? explicitFetchCommentApiPage
+            : typeof explicitProbeApi === 'function'
+              ? explicitProbeApi
+              : async (params = {}) => fetchCommentApiPageViaBrowser(ws, params))
+        : null;
+      let apiStatusForWarning = null;
+
+      if (isIncomplete && typeof fetchCommentApiPage === 'function') {
+        commentDiagnostics.api_probe_attempted = true;
+        commentDiagnostics.api_paging_attempted = true;
+        try {
+          const accumulator = createCommentAccumulator();
+          accumulator.addSnapshot(result.comments);
+          let pagePayload = normalizeCommentApiPayload(await fetchCommentApiPage({}));
+          apiStatusForWarning = pagePayload;
+          commentDiagnostics.api_probe_status = pagePayload.status || 0;
+          commentDiagnostics.api_probe_code = Number.isFinite(Number(pagePayload.code))
+            ? Number(pagePayload.code)
+            : (pagePayload.code ?? null);
+          commentDiagnostics.api_probe_has_more = pagePayload.hasMore === true;
+
+          if (isCommentApiPayloadSuccessful(pagePayload)) {
+            let previousCursor = '';
+            for (let pageIndex = 0; pageIndex < COMMENT_API_MAX_PAGES; pageIndex += 1) {
+              commentDiagnostics.api_paging_pages = pageIndex + 1;
+              const normalizedApiComments = normalizeApiCommentsToCollectorShape(pagePayload.list);
+              if (normalizedApiComments.length > 0) {
+                accumulator.addSnapshot(normalizedApiComments);
+              }
+
+              const nextCursor = String(pagePayload.cursor || '').trim();
+              const hasMore = pagePayload.hasMore === true;
+              if (!hasMore || !nextCursor || nextCursor === previousCursor) {
+                break;
+              }
+
+              previousCursor = nextCursor;
+              pagePayload = normalizeCommentApiPayload(await fetchCommentApiPage({
+                cursor: nextCursor,
+                noteId: pagePayload.noteId,
+                xsecToken: pagePayload.xsecToken
+              }));
+              apiStatusForWarning = pagePayload;
+              if (!isCommentApiPayloadSuccessful(pagePayload)) {
+                commentDiagnostics.api_paging_blocked = true;
+                commentDiagnostics.api_paging_blocked_code = Number.isFinite(Number(pagePayload.code))
+                  ? Number(pagePayload.code)
+                  : (pagePayload.code ?? null);
+                break;
+              }
+            }
+
+            result.comments = accumulator.toArray();
+            commentDiagnostics.api_paging_added = Math.max(0, result.comments.length - domCommentCount);
+          } else {
+            commentDiagnostics.api_paging_blocked = true;
+            commentDiagnostics.api_paging_blocked_code = Number.isFinite(Number(pagePayload.code))
+              ? Number(pagePayload.code)
+              : (pagePayload.code ?? null);
+          }
+        } catch (apiError) {
+          const message = apiError?.message || String(apiError || '').trim();
+          apiStatusForWarning = {
+            status: 0,
+            code: 'probe_failed',
+            message,
+            success: false
+          };
+          commentDiagnostics.api_paging_blocked = true;
+          commentDiagnostics.api_paging_blocked_code = 'probe_failed';
+        }
+      }
+
+      const warning = await resolveCommentErrorFn({
         comments: result.comments,
         state,
-        probeApi: shouldProbeApi ? async () => {
-          const response = await send(ws, 'Runtime.evaluate', {
-            expression: `
-              (async function() {
-                const state = window.__INITIAL_STATE__ || {};
-                const noteMap = state.note && state.note.noteDetailMap ? state.note.noteDetailMap : {};
-                const pathMatch = (location.pathname || '').match(/\\/(?:explore|discovery\\/item)\\/([A-Za-z0-9]+)/i);
-                const noteIdFromUrl = pathMatch ? pathMatch[1] : '';
-                const noteKey = noteIdFromUrl && noteMap[noteIdFromUrl]
-                  ? noteIdFromUrl
-                  : (Object.keys(noteMap).find((key) => key && noteMap[key] && noteMap[key].note) || noteIdFromUrl);
-                const commentState = noteKey && noteMap[noteKey] ? noteMap[noteKey].comments : null;
-                const cursor = commentState && commentState.cursor ? commentState.cursor : '';
-                const xsecToken = new URL(location.href).searchParams.get('xsec_token') || '';
-                if (!noteIdFromUrl) {
-                  return JSON.stringify({ status: 0, code: 0, message: '', success: true });
-                }
-                const api = 'https://edith.xiaohongshu.com/api/sns/web/v2/comment/page';
-                const params = new URLSearchParams({
-                  note_id: noteIdFromUrl,
-                  cursor,
-                  top_comment_id: '',
-                  image_formats: 'jpg,webp',
-                  xsec_token: xsecToken
-                });
-                const url = api + '?' + params.toString();
-                const res = await fetch(url, { credentials: 'include' });
-                let body = {};
-                try {
-                  body = await res.json();
-                } catch (error) {
-                  body = { message: await res.text() };
-                }
-                return JSON.stringify({
-                  status: res.status,
-                  code: body.code,
-                  message: body.msg || body.message || '',
-                  success: body.success
-                });
-              })()
-            `,
-            returnByValue: true,
-            awaitPromise: true
-          });
-
-          return JSON.parse(response?.result?.value || '{}');
-        } : undefined,
+        apiStatus: apiStatusForWarning,
         onWarning: (message) => {
           logWarn(`[XHS][comments] ${message}`);
         }
       });
       if (warning) {
         result.commentError = warning;
-        result.commentWarningCode = resolveCommentWarningCode({
+        result.commentWarningCode = resolveCommentWarningCodeFn({
           totalCount: state?.totalCount,
           actualCount: result.comments.length,
           requiresLogin: state?.requiresLogin,
@@ -1779,13 +2319,22 @@ async function extractNoteDetail(ws) {
   } catch (error) {
     result.comments = [];
     result.commentError = error && error.message ? error.message : '\u8bc4\u8bba\u533a\u91c7\u96c6\u5931\u8d25';
-    result.commentWarningCode = resolveCommentWarningCode({
+    result.commentWarningCode = resolveCommentWarningCodeFn({
       totalCount: result.commentTotal || 0,
       actualCount: 0,
       commentError: result.commentError
     });
   }
 
+  return result;
+}
+
+async function extractNoteDetail(ws, options = {}) {
+  const extractNoteCoreDetailFn = options.extractNoteCoreDetailFn || extractNoteCoreDetail;
+  const collectNoteCommentDiagnosticsFn = options.collectNoteCommentDiagnosticsFn || collectNoteCommentDiagnostics;
+  const result = await extractNoteCoreDetailFn(ws, options);
+  const commentDiagnostics = await collectNoteCommentDiagnosticsFn(ws, options);
+  Object.assign(result, commentDiagnostics);
   return result;
 }
 
@@ -1803,19 +2352,25 @@ module.exports = {
   clickNextCommentExpander,
   clickNextReplyExpander,
   connectToChrome,
+  collectPreparedNoteComments,
   createCommentAccumulator,
   ensureCommentsReady,
+  expandPreparedNoteComments,
   extractImageUrlsFromStateNote,
+  extractNoteCoreDetail,
   expandAllComments,
   expandAllReplies,
+  collectNoteCommentDiagnostics,
   extractNoteComments,
   extractNoteDetail,
   extractNoteIdFromUrl,
   getTabWsUrl,
   getCurrentPageUrl,
   isCommentLoadMoreText,
+  isReplyExpandText,
   isNoteDetailUrl,
   navigateToUrl,
+  prepareNoteCommentCollection,
   readCommentExpansionState,
   readCommentExpansionStateWithRetry,
   readVisibleComments,

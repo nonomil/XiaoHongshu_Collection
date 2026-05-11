@@ -77,10 +77,9 @@ function buildOpenFolderCommand(folderPath, options = {}) {
   const platform = options.platform || process.platform;
   const normalized = path.normalize(String(folderPath || '').trim());
   if (platform === 'win32') {
-    const escaped = normalized.replace(/"/g, '""');
     return {
-      command: 'cmd.exe',
-      args: ['/d', '/s', '/c', `start "" "${escaped}"`],
+      command: 'explorer.exe',
+      args: [normalized],
       options: {
         detached: true,
         stdio: 'ignore',

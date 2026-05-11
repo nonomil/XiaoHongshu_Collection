@@ -10,7 +10,11 @@ const { cleanTags } = require('./ai/tag_clean');
 const { resolveTessdataPrefix } = require('./ai/tesseract_path');
 const { resolveCollectionOutputRoot, resolveCollectionRawPath } = require('./lib/collection_paths');
 const { resolveMarkdownConflict } = require('./lib/output_naming');
-const { loadOpenRouterConfig, resolveProjectPaths } = require('./lib/config');
+const {
+  loadOpenRouterConfig,
+  normalizeOpenRouterApiKey,
+  resolveProjectPaths
+} = require('./lib/config');
 
 const PATHS = resolveProjectPaths(path.resolve(__dirname, '..'));
 const PROJECT_DIR = PATHS.projectDir;
@@ -36,9 +40,10 @@ function parseEnvBool(value) {
 }
 
 const CONFIG = loadOpenRouterConfig({ projectDir: PROJECT_DIR });
-const OPENROUTER_API_KEY = CONFIG.apiKey || '';
-const OPENROUTER_MODEL = CONFIG.model || 'openrouter/free';
-const OPENROUTER_BASE_URL = CONFIG.baseUrl || 'https://openrouter.ai/api/v1';
+const OPENROUTER_API_KEY = normalizeOpenRouterApiKey(process.env.XHS_OPENROUTER_API_KEY || CONFIG.apiKey || '');
+const OPENROUTER_MODEL = String(process.env.XHS_OPENROUTER_MODEL || CONFIG.model || 'openrouter/free').trim() || 'openrouter/free';
+const OPENROUTER_BASE_URL = String(process.env.XHS_OPENROUTER_BASE_URL || CONFIG.baseUrl || 'https://openrouter.ai/api/v1').trim()
+  || 'https://openrouter.ai/api/v1';
 const OPENROUTER_TIMEOUT_MS = resolveNumberEnv(process.env.XHS_OPENROUTER_TIMEOUT_MS)
   || Number(CONFIG.timeoutMs || 30000);
 const AI_ENABLED = !CONFIG._missing
@@ -209,10 +214,12 @@ function postJson(url, headers, body, timeoutMs) {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify(body);
     const target = new URL(url);
-    const req = https.request({
+    const client = target.protocol === 'http:' ? http : https;
+    const req = client.request({
       method: 'POST',
       protocol: target.protocol,
       hostname: target.hostname,
+      port: target.port || undefined,
       path: `${target.pathname}${target.search}`,
       headers: {
         ...headers,

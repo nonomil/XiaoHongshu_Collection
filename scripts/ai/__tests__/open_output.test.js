@@ -70,15 +70,13 @@ test('openFolder delegates to spawn and returns the normalized folder path', asy
   assert.equal(calls[0].args.length >= 1, true);
 });
 
-test('buildOpenFolderCommand uses cmd start on Windows', () => {
+test('buildOpenFolderCommand uses explorer on Windows', () => {
   const command = buildOpenFolderCommand('G:/UserCode/XiaoHongshu_Collection/output/AI', {
     platform: 'win32'
   });
 
-  assert.equal(command.command, 'cmd.exe');
-  assert.deepEqual(command.args.slice(0, 3), ['/d', '/s', '/c']);
-  assert.match(command.args[3], /start ""/i);
-  assert.match(command.args[3], /XiaoHongshu_Collection/);
+  assert.equal(command.command, 'explorer.exe');
+  assert.deepEqual(command.args, [path.normalize('G:/UserCode/XiaoHongshu_Collection/output/AI')]);
 });
 
 test('openFolder rejects when the system open command emits an error', async () => {

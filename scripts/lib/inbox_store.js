@@ -5,6 +5,32 @@ function ensureDir(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
 
+function resolveInboxTimestampDate(timestamp, now = new Date()) {
+  const normalizedNow = now instanceof Date ? now : new Date();
+  const raw = Number(timestamp);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return new Date(normalizedNow.getTime());
+  }
+  const millis = raw > 1e12 ? raw : raw * 1000;
+  return new Date(millis);
+}
+
+function formatInboxBucketParts(timestamp, now = new Date()) {
+  const date = resolveInboxTimestampDate(timestamp, now);
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return {
+    year,
+    yearMonth: `${year}-${month}`
+  };
+}
+
+function resolveInboxArchivePath(archiveRoot, item, now = new Date()) {
+  if (!archiveRoot) return '';
+  const { year, yearMonth } = formatInboxBucketParts(item?.timestamp, now);
+  return path.join(archiveRoot, year, `${yearMonth}.jsonl`);
+}
+
 function readJsonLines(filePath) {
   if (!fs.existsSync(filePath)) return [];
   const raw = fs.readFileSync(filePath, 'utf-8');
@@ -22,7 +48,7 @@ function readJsonLines(filePath) {
     .filter(Boolean);
 }
 
-function createInboxStore({ filePath }) {
+function createInboxStore({ filePath, archiveRoot, now } = {}) {
   if (!filePath) {
     throw new Error('filePath is required');
   }
@@ -57,6 +83,24 @@ function createInboxStore({ filePath }) {
         ensureDir(filePath);
         const lines = toAppend.map((item) => JSON.stringify(item)).join('\n') + '\n';
         fs.appendFileSync(filePath, lines, 'utf-8');
+
+        if (archiveRoot) {
+          const bucketMap = new Map();
+          for (const item of toAppend) {
+            const archivePath = resolveInboxArchivePath(archiveRoot, item, now);
+            if (!archivePath) continue;
+            if (!bucketMap.has(archivePath)) {
+              bucketMap.set(archivePath, []);
+            }
+            bucketMap.get(archivePath).push(item);
+          }
+
+          for (const [archivePath, bucketItems] of bucketMap.entries()) {
+            ensureDir(archivePath);
+            const archiveLines = bucketItems.map((item) => JSON.stringify(item)).join('\n') + '\n';
+            fs.appendFileSync(archivePath, archiveLines, 'utf-8');
+          }
+        }
       }
 
       return { added, skipped };
@@ -65,5 +109,8 @@ function createInboxStore({ filePath }) {
 }
 
 module.exports = {
-  createInboxStore
+  createInboxStore,
+  formatInboxBucketParts,
+  resolveInboxArchivePath,
+  resolveInboxTimestampDate
 };

@@ -82,18 +82,22 @@ function createPushbulletProvider({
   }
 
   const resolvedLimit = resolveInteger(limit, DEFAULT_PAGE_LIMIT) || DEFAULT_PAGE_LIMIT;
-  const resolvedMaxPages = resolveInteger(
+  const resolvedDefaultMaxPages = resolveInteger(
     maxPages,
     resolveInteger(process.env.PUSHBULLET_MAX_PAGES, DEFAULT_MAX_PAGES)
   );
-  const safeMaxPages = resolvedMaxPages > 0 ? resolvedMaxPages : DEFAULT_MAX_PAGES;
+  const defaultMaxPages = resolvedDefaultMaxPages > 0 ? resolvedDefaultMaxPages : DEFAULT_MAX_PAGES;
 
   return {
-    async pull({ since = 0, maxItems } = {}) {
+    async pull({ since = 0, maxItems, maxPages: pullMaxPages, limit: pullLimit, onPage } = {}) {
       const items = [];
       const normalizedSince = Number(since) || 0;
       const normalizedMaxItems = resolveInteger(maxItems, 0);
       const safeMaxItems = normalizedMaxItems > 0 ? normalizedMaxItems : 0;
+      const resolvedPullMaxPages = resolveInteger(pullMaxPages, defaultMaxPages);
+      const safeMaxPages = resolvedPullMaxPages > 0 ? resolvedPullMaxPages : defaultMaxPages;
+      const resolvedPullLimit = resolveInteger(pullLimit, resolvedLimit);
+      const safeLimit = resolvedPullLimit > 0 ? resolvedPullLimit : resolvedLimit;
       let nextModified = normalizedSince;
       let cursor = '';
       let pagesFetched = 0;
@@ -112,7 +116,7 @@ function createPushbulletProvider({
           baseUrl,
           since: normalizedSince,
           cursor,
-          limit: resolvedLimit
+          limit: safeLimit
         });
 
         const response = await fetchPushesWithAuth({ fetchImpl, url, accessToken });
@@ -141,6 +145,14 @@ function createPushbulletProvider({
         }
 
         cursor = typeof payload?.cursor === 'string' ? payload.cursor : '';
+        if (typeof onPage === 'function') {
+          onPage({
+            page: pagesFetched,
+            pushesCount: pushes.length,
+            accumulatedItems: items.length,
+            nextCursor: cursor
+          });
+        }
         if (cappedByItems) {
           items.length = safeMaxItems;
           break;
@@ -148,7 +160,7 @@ function createPushbulletProvider({
         if (!cursor || pushes.length === 0) break;
       }
 
-      const result = { items, nextModified };
+      const result = { items, nextModified, pagesFetched };
       if (truncated) {
         result.truncated = true;
         result.warning = warning;

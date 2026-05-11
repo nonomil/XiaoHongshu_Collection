@@ -99,6 +99,9 @@ node scripts/ocr_and_write.js
 - 单笔记保存（当前浏览器增强）：`node scripts/save_note.js --browser-mode current-browser <笔记链接>`
 - 知乎收藏夹导出（实验 CLI）：`node scripts/save_zhihu_favorites.js <收藏夹链接> --cookie "<知乎 Cookie>"`
 - Pushbullet 收件箱同步：`npm run inbox:sync -- --mode recent --limit 50`
+- 统一 ingress 立即执行：`POST /api/ingress/save-link`
+- 统一 ingress 仅入队：`POST /api/ingress/enqueue-link`
+- 飞书 webhook 入队：`POST /api/ingress/webhook/feishu`
 - 收件箱双库核对：`npm run inbox:verify -- --limit 50`
 - 收藏夹导出（CLI）：`node scripts/extract_v4.js` + `node scripts/ocr_and_write.js`
 - UI 入口：运行 `启动小红书保存入口.bat`，浏览器访问 `http://127.0.0.1:3030/`
@@ -141,7 +144,13 @@ node scripts/save_zhihu_favorites.js https://www.zhihu.com/collection/123456789 
 如果你想直接验证“最近 N 条里的公众号 / 知乎链接，是否同时写入了分类库和总库镜像”，现在可以直接使用两条命令：
 
 ```powershell
-# 拉取最近 50 条消息到本地 inbox
+# 首次全量补历史（推荐第一次执行）
+npm run inbox:sync -- --mode bootstrap --max-pages 200
+
+# 日常增量同步
+npm run inbox:sync -- --mode latest
+
+# 拉取最近 50 条消息到本地 inbox，便于做核对
 npm run inbox:sync -- --mode recent --limit 50
 
 # 核对最近 50 条中的公众号 / 知乎链接，是否同时存在分类稿和总库镜像稿
@@ -151,7 +160,9 @@ npm run inbox:verify -- --limit 50
 说明：
 
 - `inbox:sync` 支持 `--mode latest|recent|all`
+- 现在额外支持 `--mode bootstrap`
 - `recent` 模式下支持 `--limit 10|20|30|40|50|60`
+- `bootstrap` / `all` 可配合 `--max-pages 200` 这类参数拉更深历史
 - `inbox:verify` 会扫描 `output/收件箱同步/**/*.md`
 - 目前核对目标限定为：
   - `mp.weixin.qq.com`
@@ -159,6 +170,57 @@ npm run inbox:verify -- --limit 50
 - 判定通过的标准是每个目标链接至少找到两份稿件：
   - 1 份分类稿
   - 1 份总库镜像稿（`收件箱同步/全部`）
+- 如果同步结果被截断，系统会显式给出 warning，并且不会错误推进 `lastModified`
+- 收件箱保存现在会按年月归档，例如：
+  - `output/收件箱同步/2026/2026-04/AI/...`
+  - `output/收件箱同步/2026/2026-04/全部/...`
+- 新增的原始月归档镜像位于：
+  - `data/inbox_archive/2026/2026-04.jsonl`
+
+## 统一 ingress 与飞书 webhook
+
+当前项目已经有三条统一入口：
+
+- `POST /api/ingress/save-link`
+  - 立即执行保存
+  - 适合浏览器插件、本地工具直接把当前页送进执行器
+- `POST /api/ingress/enqueue-link`
+  - 只写入收件箱，不立即执行
+  - 适合手机分享桥接、云端收集和后续补跑
+- `POST /api/ingress/webhook/feishu`
+  - 处理飞书事件订阅回调
+  - `url_verification` 会直接回传 `challenge`
+  - 消息事件会从消息文本里提取第一个 `http(s)` 链接，并按 `source=feishu`、`delivery_mode=queue` 入队
+
+本地 `ui_config` 现在支持 `ingress` 段：
+
+```json
+{
+  "ingress": {
+    "localBaseUrl": "http://127.0.0.1:3030",
+    "cloudBaseUrl": "https://example.com",
+    "defaultRoute": "local"
+  }
+}
+```
+
+说明：
+
+- `localBaseUrl`：浏览器插件或本地工具默认访问地址
+- `cloudBaseUrl`：未来云端入口地址，占位后续公网部署
+- `defaultRoute`：外部入口默认路由，推荐本地环境用 `local`，云端环境改为 `cloud`
+
+如果准备把 webhook 暴露到公网，必须额外配置：
+
+```powershell
+$env:XHS_INGRESS_WEBHOOK_TOKEN="replace_me"
+```
+
+说明：
+
+- 本地默认不强制 token，便于调试
+- 一旦公网暴露，建议立即启用 `XHS_INGRESS_WEBHOOK_TOKEN`
+- `config/ingress.example.json` 继续作为云端部署占位配置示例，外部 JSON 用 `snake_case`，内部 `ui_config` 仍用 `camelCase`
 
 ## 目录结构
 ```

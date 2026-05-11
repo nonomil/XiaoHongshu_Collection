@@ -5,7 +5,10 @@ const DEFAULT_PUSHBULLET_CONFIG = {
   enabled: false,
   accessToken: '',
   lastModified: 0,
-  inboxPath: 'data/inbox_links.jsonl'
+  inboxPath: 'data/inbox_links.jsonl',
+  maxPages: 50,
+  bootstrapMaxPages: 200,
+  pageLimit: 500
 };
 
 function cloneDefaults() {

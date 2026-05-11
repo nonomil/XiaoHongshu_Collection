@@ -14,6 +14,9 @@ function buildDom() {
   <button id="links-submit"></button>
   <button id="links-clear"></button>
   <button id="collection-submit"></button>
+  <button id="refresh-browser-status"></button>
+  <div id="browser-status-summary"></div>
+  <p id="browser-status-detail"></p>
   <button id="inbox-sync"></button>
   <button id="inbox-sync-all-top"></button>
   <button id="inbox-sync-latest"></button>
@@ -50,6 +53,8 @@ function buildDom() {
     <option value="beta">beta</option>
   </select>
   <input id="browser-url" />
+  <input id="browser-headless" type="checkbox" />
+  <button id="open-login-browser" type="button"></button>
   <select id="naming-strategy">
     <option value="content-aware">content-aware</option>
   </select>
@@ -71,6 +76,7 @@ function buildDom() {
     <strong id="error-title"></strong>
     <p id="error-message"></p>
     <ul id="error-hints"></ul>
+    <div id="error-actions"></div>
     <button id="error-dismiss"></button>
   </section>
 </body>
@@ -133,4 +139,119 @@ test('collection error triggers error banner', async () => {
   const message = dom.window.document.getElementById('error-message');
   assert.equal(banner.hidden, false);
   assert.match(message.textContent, /\u767b\u5f55/);
+});
+
+test('browser connection error exposes repair actions and can auto-fix into isolated mode', async () => {
+  const dom = buildDom();
+  global.window = dom.window;
+  global.document = dom.window.document;
+  global.navigator = dom.window.navigator;
+  global.localStorage = dom.window.localStorage;
+
+  const helpersPath = path.join(projectRoot, 'ui', 'ui_helpers.js');
+  delete require.cache[helpersPath];
+  const helpers = require(helpersPath);
+  global.window.XhsUiHelpers = helpers;
+
+  const calls = [];
+  const defaultConfig = {
+    paths: {},
+    browser: {
+      mode: 'current-browser',
+      channel: 'stable',
+      browserUrl: '',
+      headless: false
+    },
+    naming: {},
+    runtime: {},
+    pushbullet: {},
+    inbox: {},
+    ui: {}
+  };
+
+  global.fetch = async (url, init) => {
+    calls.push({ url: String(url), init: init || {} });
+    const isGet = !init || init.method === 'GET';
+    if (String(url).includes('/api/ui-config') && isGet) {
+      return {
+        ok: true,
+        json: async () => ({ config: defaultConfig }),
+        headers: { get: () => 'application/json' }
+      };
+    }
+    if (String(url).includes('/api/save-collection')) {
+      return {
+        ok: false,
+        json: async () => ({ error: 'Chrome remote debugging is not available on port 9222.' }),
+        headers: { get: () => 'application/json' }
+      };
+    }
+    if (String(url).includes('/api/ui-config')) {
+      const payload = JSON.parse(init.body);
+      return {
+        ok: true,
+        json: async () => ({ config: payload.config }),
+        headers: { get: () => 'application/json' }
+      };
+    }
+    if (String(url).includes('/api/browser/login')) {
+      return {
+        ok: true,
+        json: async () => ({
+          profileDir: 'G:/UserCode/XiaoHongshu_Collection/.cache/chrome-debug'
+        }),
+        headers: { get: () => 'application/json' }
+      };
+    }
+    if (String(url).includes('/api/browser/status')) {
+      return {
+        ok: true,
+        json: async () => ({
+          status: {
+            connected: true,
+            browserLabel: '项目浏览器',
+            browserDetail: '已切换到项目浏览器并连接成功',
+            platforms: {
+              xiaohongshu: { state: 'unknown', label: '未检测' },
+              zhihu: { state: 'unknown', label: '未检测' }
+            },
+            tabs: {
+              xiaohongshu: false,
+              zhihu: false
+            }
+          }
+        }),
+        headers: { get: () => 'application/json' }
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({}),
+      headers: { get: () => 'application/json' }
+    };
+  };
+
+  const appPath = path.join(projectRoot, 'ui', 'app.js');
+  delete require.cache[appPath];
+  require(appPath);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  dom.window.document.getElementById('collection-submit').click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const repairButton = dom.window.document.querySelector('[data-error-action="repair_browser_session"]');
+  assert.ok(repairButton);
+
+  repairButton.click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const saveCall = calls.find((entry) => entry.url.includes('/api/ui-config') && entry.init.method === 'POST');
+  assert.ok(saveCall);
+  const savedPayload = JSON.parse(saveCall.init.body);
+  assert.equal(savedPayload.config.browser.mode, 'isolated');
+
+  const loginCall = calls.find((entry) => entry.url.includes('/api/browser/login'));
+  assert.ok(loginCall);
+  assert.match(dom.window.document.getElementById('status-text').textContent, /项目登录浏览器|隔离浏览器|浏览器状态已刷新/i);
 });

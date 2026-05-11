@@ -73,8 +73,6 @@ function buildProjectChromeLaunchArgs({
 
   if (headless) {
     args.push('--headless=new', '--disable-gpu');
-  } else {
-    args.push('--new-window');
   }
 
   args.push(`--user-data-dir=${userDataDir}`);

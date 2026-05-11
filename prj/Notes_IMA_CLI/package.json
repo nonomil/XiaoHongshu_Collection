@@ -1,0 +1,14 @@
+{
+  "name": "notes-ima-cli",
+  "version": "0.1.0",
+  "description": "基于 ima OpenAPI 的笔记导出 Markdown CLI",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "ima-cli": "./src/cli.js"
+  },
+  "scripts": {
+    "test": "node --test",
+    "cli": "node ./src/cli.js"
+  }
+}

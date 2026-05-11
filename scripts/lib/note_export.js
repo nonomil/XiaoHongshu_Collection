@@ -5,7 +5,11 @@ const path = require('path');
 const { createWorker } = require('tesseract.js');
 const { buildAiInput, parseAiResponse, fallbackSummaryTags } = require('../ai/summary');
 const { cleanTags } = require('../ai/tag_clean');
-const { loadOpenRouterConfig, loadVisionOcrConfig } = require('./config');
+const {
+  loadOpenRouterConfig,
+  loadVisionOcrConfig,
+  normalizeOpenRouterConfig
+} = require('./config');
 const { runOcrWithProvider, shouldUseVisionOcr } = require('./ocr_provider');
 const { resolveMarkdownConflict } = require('./output_naming');
 const { getSummaryTagsWithProvider, normalizeSummaryTags, shouldUseAiSummary } = require('./summary_provider');
@@ -89,6 +93,44 @@ function resolveExportCommentWarningCode({ note, commentTotal, commentCollected,
     return 'comment_warning';
   }
   return '';
+}
+
+function resolveExportManualAction({ note, commentWarningCode = '', commentError = '' } = {}) {
+  const explicitRequired = note?.manual_action_required === true || note?.manualActionRequired === true;
+  const explicitReason = String(note?.manual_action_reason || note?.manualActionReason || '').trim();
+  if (explicitRequired || explicitReason) {
+    return {
+      manual_action_required: explicitRequired || Boolean(explicitReason),
+      manual_action_reason: explicitReason
+    };
+  }
+
+  const message = String(commentError || '').trim();
+  if (/验证码|captcha/i.test(message)) {
+    return {
+      manual_action_required: true,
+      manual_action_reason: 'captcha'
+    };
+  }
+  if (
+    commentWarningCode === 'comment_login_required'
+    || /登录查看全部评论内容|无登录信息|先在当前 Chrome 会话中登录后重试|登录后查看/.test(message)
+  ) {
+    return {
+      manual_action_required: true,
+      manual_action_reason: 'login_required'
+    };
+  }
+  if (/300011|406|账号异常|风控|频率|限流|rate/i.test(message)) {
+    return {
+      manual_action_required: true,
+      manual_action_reason: 'risk_control'
+    };
+  }
+  return {
+    manual_action_required: false,
+    manual_action_reason: ''
+  };
 }
 
 function resolvePlatformLabel(note) {
@@ -657,10 +699,12 @@ function postJson(url, headers, body, timeoutMs) {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify(body);
     const target = new URL(url);
-    const request = https.request({
+    const client = target.protocol === 'http:' ? http : https;
+    const request = client.request({
       method: 'POST',
       protocol: target.protocol,
       hostname: target.hostname,
+      port: target.port || undefined,
       path: `${target.pathname}${target.search}`,
       headers: {
         ...headers,
@@ -883,7 +927,14 @@ async function ocrImagesWithVision({ images, config }) {
 function buildSingleNoteExportResult({
   filepath,
   commentArchivePath = '',
+  comment_total = 0,
+  comment_collected = 0,
+  comment_warning_code = '',
+  comment_error = '',
+  comment_diagnostics = null,
   content = '',
+  manual_action_required = false,
+  manual_action_reason = '',
   ocrTexts = [],
   summary = '',
   tags = [],
@@ -894,7 +945,14 @@ function buildSingleNoteExportResult({
   return {
     filepath,
     commentArchivePath,
+    comment_total,
+    comment_collected,
+    comment_warning_code,
+    comment_error,
+    comment_diagnostics,
     content,
+    manual_action_required,
+    manual_action_reason,
     ocrTexts,
     summary,
     tags,
@@ -905,11 +963,27 @@ function buildSingleNoteExportResult({
 }
 
 function applyRuntimeOverrides(baseConfig, runtime = {}) {
-  if (!runtime || typeof runtime !== 'object') return { ...baseConfig };
+  if (!runtime || typeof runtime !== 'object') {
+    return normalizeOpenRouterConfig({ ...baseConfig });
+  }
   const next = { ...baseConfig };
   if (runtime.aiSummaryEnabled === false) next.enabled = false;
-  if (runtime.openRouterTimeoutMs) next.timeoutMs = Number(runtime.openRouterTimeoutMs);
-  return next;
+  if (Object.prototype.hasOwnProperty.call(runtime, 'openRouterBaseUrl')) {
+    next.baseUrl = String(runtime.openRouterBaseUrl || '').trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(runtime, 'openRouterModel')) {
+    next.model = String(runtime.openRouterModel || '').trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(runtime, 'openRouterApiKey')) {
+    const apiKey = String(runtime.openRouterApiKey || '').trim();
+    if (apiKey) {
+      next.apiKey = apiKey;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(runtime, 'openRouterTimeoutMs')) {
+    next.timeoutMs = Number(runtime.openRouterTimeoutMs);
+  }
+  return normalizeOpenRouterConfig(next);
 }
 
 function applyVisionRuntimeOverrides(baseConfig, runtime = {}) {
@@ -999,10 +1073,18 @@ async function processSingleNoteExport({
   const commentError = note.commentError || '';
   const commentTotal = Number(note.commentTotal || 0);
   const commentCollected = Array.isArray(note.comments) ? note.comments.length : 0;
+  const commentDiagnostics = note.commentDiagnostics && typeof note.commentDiagnostics === 'object'
+    ? note.commentDiagnostics
+    : (note.comment_diagnostics && typeof note.comment_diagnostics === 'object' ? note.comment_diagnostics : null);
   const commentWarningCode = resolveExportCommentWarningCode({
     note,
     commentTotal,
     commentCollected,
+    commentError
+  });
+  const manualAction = resolveExportManualAction({
+    note,
+    commentWarningCode,
     commentError
   });
   const warnings = [];
@@ -1058,7 +1140,14 @@ async function processSingleNoteExport({
   const result = buildSingleNoteExportResult({
     filepath,
     commentArchivePath,
+    comment_total: commentTotal,
+    comment_collected: commentCollected,
+    comment_warning_code: commentWarningCode,
+    comment_error: commentError,
+    comment_diagnostics: commentDiagnostics,
     content,
+    manual_action_required: manualAction.manual_action_required,
+    manual_action_reason: manualAction.manual_action_reason,
     ocrTexts,
     summary,
     tags,

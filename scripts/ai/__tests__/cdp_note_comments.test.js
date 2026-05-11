@@ -6,8 +6,11 @@ const {
   expandAllComments,
   buildCommentApiFailureMessage,
   buildCommentCompletionWarning,
+  collectPreparedNoteComments,
+  collectNoteCommentDiagnostics,
   createCommentAccumulator,
   isCommentLoadMoreText,
+  isReplyExpandText,
   sweepVirtualizedComments,
   resolveCommentError,
   readCommentExpansionStateWithRetry,
@@ -86,9 +89,28 @@ test('buildCommentApiFailureMessage maps login required errors to hints', () => 
   assert.match(message, /登录/);
 });
 
+test('buildCommentApiFailureMessage ignores successful probe payloads', () => {
+  const message = buildCommentApiFailureMessage({
+    status: 200,
+    code: 0,
+    message: '成功',
+    success: true
+  });
+  assert.equal(message, '');
+});
+
 test('isCommentLoadMoreText ignores reply expanders but keeps top-level load-more copy', () => {
   assert.equal(isCommentLoadMoreText('展开 5 条回复'), false);
   assert.equal(isCommentLoadMoreText('查看更多评论'), true);
+  assert.equal(isCommentLoadMoreText('展开更多评论'), true);
+  assert.equal(isCommentLoadMoreText('查看全部评论'), true);
+});
+
+test('isReplyExpandText recognizes reply expansion copy', () => {
+  assert.equal(isReplyExpandText('展开 5 条回复'), true);
+  assert.equal(isReplyExpandText('查看 2 条回复'), true);
+  assert.equal(isReplyExpandText('查看全部回复'), true);
+  assert.equal(isReplyExpandText('查看更多评论'), false);
 });
 
 test('resolveCommentError appends api hint when comments are incomplete', async () => {
@@ -105,6 +127,26 @@ test('resolveCommentError appends api hint when comments are incomplete', async 
   assert.equal(warned, message);
 });
 
+test('resolveCommentError explains when DOM sweep finishes but comment api paging is blocked', async () => {
+  const message = await resolveCommentError({
+    comments: Array.from({ length: 34 }, (_, index) => ({ commentId: `c${index + 1}` })),
+    state: { totalCount: 58, requiresLogin: false },
+    probeApi: async () => ({
+      status: 200,
+      code: 300011,
+      success: false,
+      message: '当前账号存在异常，请切换账号后重试',
+      cursor: 'cursor-1',
+      hasMore: true
+    })
+  });
+
+  assert.match(message, /58/);
+  assert.match(message, /34/);
+  assert.match(message, /300011/);
+  assert.match(message, /拦截|补齐/);
+});
+
 test('resolveCommentError prefers login-gate hint when page asks to log in for all comments', async () => {
   let warned = '';
   const message = await resolveCommentError({
@@ -116,6 +158,105 @@ test('resolveCommentError prefers login-gate hint when page asks to log in for a
   assert.match(message, /登录/);
   assert.match(message, /86/);
   assert.equal(warned, message);
+});
+
+test('collectNoteCommentDiagnostics classifies login-gated comment state', async () => {
+  const result = await collectNoteCommentDiagnostics(null, {
+    extractComments: async () => Array.from({ length: 19 }, (_, index) => ({
+      commentId: `c${index + 1}`
+    })),
+    readExpansionStateWithRetry: async () => ({
+      totalCount: 86,
+      requiresLogin: true
+    }),
+    retryAsyncFn: async (fn) => fn(),
+    probeApi: false
+  });
+
+  assert.equal(result.commentTotal, 86);
+  assert.equal(result.comments.length, 19);
+  assert.equal(result.commentWarningCode, 'comment_login_required');
+  assert.match(result.commentError, /登录/);
+});
+
+test('collectNoteCommentDiagnostics merges extra comments from api paging when probe succeeds', async () => {
+  const result = await collectNoteCommentDiagnostics(null, {
+    extractComments: async () => [
+      { commentId: 'c1', author: 'a', content: '1' },
+      { commentId: 'c2', author: 'b', content: '2' }
+    ],
+    readExpansionStateWithRetry: async () => ({
+      totalCount: 3,
+      requiresLogin: false,
+      replyButtonCount: 0
+    }),
+    retryAsyncFn: async (fn) => fn(),
+    probeApi: async () => ({
+      status: 200,
+      code: 0,
+      success: true,
+      message: '成功',
+      cursor: 'cursor-2',
+      hasMore: false,
+      list: [
+        {
+          id: 'c3',
+          content: '3',
+          createTime: 1772593639000,
+          likeCount: '0',
+          subCommentCount: '0',
+          showTags: [],
+          userInfo: {
+            nickname: 'c',
+            userId: 'u3'
+          },
+          subComments: []
+        }
+      ]
+    })
+  });
+
+  assert.equal(result.comments.length, 3);
+  assert.equal(result.commentError, '');
+  assert.equal(result.commentWarningCode, '');
+  assert.equal(result.commentDiagnostics.api_paging_attempted, true);
+  assert.equal(result.commentDiagnostics.api_paging_added, 1);
+  assert.equal(result.commentDiagnostics.api_paging_blocked, false);
+});
+
+test('collectNoteCommentDiagnostics records structured diagnostics when api paging is blocked after partial DOM load', async () => {
+  const result = await collectNoteCommentDiagnostics(null, {
+    extractComments: async () => Array.from({ length: 34 }, (_, index) => ({
+      commentId: `c${index + 1}`,
+      author: `author-${index + 1}`,
+      content: `content-${index + 1}`
+    })),
+    readExpansionStateWithRetry: async () => ({
+      totalCount: 58,
+      requiresLogin: false,
+      replyButtonCount: 0
+    }),
+    retryAsyncFn: async (fn) => fn(),
+    probeApi: async () => ({
+      status: 200,
+      code: 300011,
+      success: false,
+      message: '当前账号存在异常，请切换账号后重试',
+      cursor: 'cursor-1',
+      hasMore: true
+    })
+  });
+
+  assert.equal(result.comments.length, 34);
+  assert.equal(result.commentDiagnostics.dom_comments_collected, 34);
+  assert.equal(result.commentDiagnostics.dom_total_count, 58);
+  assert.equal(result.commentDiagnostics.reply_expand_completed, true);
+  assert.equal(result.commentDiagnostics.api_probe_code, 300011);
+  assert.equal(result.commentDiagnostics.api_probe_has_more, true);
+  assert.equal(result.commentDiagnostics.api_paging_attempted, true);
+  assert.equal(result.commentDiagnostics.api_paging_blocked, true);
+  assert.equal(result.commentDiagnostics.api_paging_blocked_code, 300011);
+  assert.match(result.commentError, /300011/);
 });
 
 test('readCommentExpansionStateWithRetry waits for non-empty state', async () => {
@@ -297,7 +438,7 @@ test('expandAllComments respects shouldLoadMore option', async () => {
   assert.equal(clickCalls, 0);
 });
 
-test('expandAllComments stops early when comments are gated behind login', async () => {
+test('expandAllComments keeps trying when comments are gated behind login but still incomplete', async () => {
   let scrollCalls = 0;
   let clickCalls = 0;
   const state = {
@@ -327,13 +468,120 @@ test('expandAllComments stops early when comments are gated behind login', async
     throttleJitterMs: 0
   });
 
-  assert.equal(scrollCalls, 0);
-  assert.equal(clickCalls, 0);
+  assert.equal(scrollCalls > 0, true);
+  assert.equal(clickCalls > 0, true);
 });
 
-test('shouldSkipCommentSweep returns true for login-gated comment states', () => {
-  assert.equal(shouldSkipCommentSweep({ requiresLogin: true, totalCount: 86, commentCount: 19 }), true);
+test('expandAllComments nudges the comment list after clicking load more', async () => {
+  let scrollCalls = 0;
+  let clickCalls = 0;
+  const state = {
+    hasCommentsRoot: true,
+    commentCount: 25,
+    buttonCount: 1,
+    totalCount: 32,
+    reachedEnd: false,
+    lastCommentId: 'c25',
+    isLoading: false,
+    requiresLogin: true
+  };
+
+  await expandAllComments(null, 1, {
+    readState: async () => state,
+    scrollMore: async () => {
+      scrollCalls += 1;
+      return true;
+    },
+    clickNext: async () => {
+      clickCalls += 1;
+      return true;
+    },
+    waitForStateChange: async () => ({ changed: false, state }),
+    maxNoChangeRounds: 1,
+    expandReplies: false,
+    throttleMs: 0,
+    throttleJitterMs: 0
+  });
+
+  assert.equal(clickCalls, 1);
+  assert.equal(scrollCalls, 1);
+});
+
+test('shouldSkipCommentSweep only skips fully blocked login-gated states', () => {
+  assert.equal(shouldSkipCommentSweep({ requiresLogin: true, totalCount: 86, commentCount: 0 }), true);
+  assert.equal(shouldSkipCommentSweep({ requiresLogin: true, totalCount: 86, commentCount: 19 }), false);
   assert.equal(shouldSkipCommentSweep({ requiresLogin: false, totalCount: 86, commentCount: 19 }), false);
+});
+
+test('collectPreparedNoteComments still sweeps virtualized comments when login gate appears after partial load', async () => {
+  const accumulator = createCommentAccumulator();
+  const windows = [
+    [
+      { commentId: 'c1', author: 'a', content: '1' },
+      { commentId: 'c2', author: 'b', content: '2' }
+    ],
+    [
+      { commentId: 'c3', author: 'c', content: '3' },
+      { commentId: 'c4', author: 'd', content: '4' }
+    ],
+    [
+      { commentId: 'c5', author: 'e', content: '5' }
+    ]
+  ];
+  let index = 0;
+  const messageHandlers = new Set();
+  const ws = {
+    on(event, handler) {
+      if (event === 'message') {
+        messageHandlers.add(handler);
+      }
+    },
+    removeListener(event, handler) {
+      if (event === 'message') {
+        messageHandlers.delete(handler);
+      }
+    },
+    send(payload) {
+      const data = JSON.parse(payload);
+      const response = JSON.stringify({
+        id: data.id,
+        result: {
+          value: JSON.stringify({ clicked: false })
+        }
+      });
+      for (const handler of Array.from(messageHandlers)) {
+        handler(response);
+      }
+    }
+  };
+
+  const result = await collectPreparedNoteComments(ws, {
+    accumulator,
+    addSnapshot: async () => {},
+    readSnapshot: async () => windows[index],
+    waitForStateChange: async () => ({ changed: false, state: {} }),
+    wait: async () => {},
+    postExpandState: {
+      hasCommentsRoot: true,
+      commentCount: 2,
+      totalCount: 58,
+      buttonCount: 0,
+      reachedEnd: false,
+      lastCommentId: 'c2',
+      isLoading: false,
+      requiresLogin: true
+    }
+  }, {
+    maxSteps: 10,
+    settleMs: 0,
+    scrollToTop: async () => { index = 0; },
+    advance: async () => {
+      index += 1;
+      return index < windows.length;
+    }
+  });
+
+  assert.equal(result.comments.length, 5);
 });
 
 test('sweepVirtualizedComments iterates snapshots across scroll windows', async () => {

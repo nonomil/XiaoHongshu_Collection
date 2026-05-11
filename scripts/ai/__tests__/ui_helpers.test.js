@@ -71,6 +71,16 @@ test('buildErrorDisplay returns fallback message when empty', () => {
   assert.match(result.message, /unknown|未知/i);
 });
 
+test('buildErrorDisplay returns repair actions for browser connection failures', () => {
+  assert.ok(helpers, 'ui_helpers module should exist');
+  const result = helpers.buildErrorDisplay('Chrome remote debugging is not available on port 9222.');
+  assert.equal(Array.isArray(result.actions), true);
+  assert.deepEqual(
+    result.actions.map((item) => item.id),
+    ['repair_browser_session', 'open_browser_settings', 'refresh_browser_status']
+  );
+});
+
 test('buildErrorDisplay returns note unavailable hint for 300031-style errors', () => {
   assert.ok(helpers, 'ui_helpers module should exist');
   const result = helpers.buildErrorDisplay('error_code=300031 当前笔记暂时无法浏览');
@@ -82,6 +92,12 @@ test('describeWarning maps login-gated comment warnings to short labels', () => 
   assert.ok(helpers, 'ui_helpers module should exist');
   const label = helpers.describeWarning({ code: 'comment_login_required' });
   assert.match(label, /登录|评论/);
+});
+
+test('describeCommentWarningCode maps warning code to readable labels', () => {
+  assert.ok(helpers, 'ui_helpers module should exist');
+  assert.match(helpers.describeCommentWarningCode('comment_login_required'), /登录/);
+  assert.match(helpers.describeCommentWarningCode('comment_incomplete'), /未抓全|未完整/);
 });
 
 test('describeResultStatus maps note unavailable failures to short labels', () => {
@@ -100,6 +116,67 @@ test('describeResultStatus maps account abnormal failures to short labels', () =
     error: '评论接口返回：当前账号存在异常，请切换账号或重新登录。'
   });
   assert.match(label, /账号|登录/);
+});
+
+test('describeResultFailureStage maps browser connection failures to layered stage', () => {
+  assert.ok(helpers, 'ui_helpers module should exist');
+  const label = helpers.describeResultFailureStage({
+    status: 'failed',
+    error: 'Chrome remote debugging is not available on port 9222.'
+  });
+  assert.match(label, /浏览器接入/);
+});
+
+test('describeResultFailureStage maps note detail failures to layered stage', () => {
+  assert.ok(helpers, 'ui_helpers module should exist');
+  const label = helpers.describeResultFailureStage({
+    status: 'failed',
+    error: '无法打开笔记详情页：当前笔记暂时无法浏览（error_code=300031）。'
+  });
+  assert.match(label, /详情页|打开详情页/);
+});
+
+test('describeResultFailureStage maps comment loading failures to layered stage', () => {
+  assert.ok(helpers, 'ui_helpers module should exist');
+  const label = helpers.describeResultFailureStage({
+    status: 'failed',
+    error: '评论可能未完整加载：页面显示共 40 条，当前抓取 3 条。'
+  });
+  assert.match(label, /评论加载/);
+});
+
+test('describeResultFailureStage maps comment api restriction failures to layered stage', () => {
+  assert.ok(helpers, 'ui_helpers module should exist');
+  const label = helpers.describeResultFailureStage({
+    status: 'failed',
+    error: '评论接口返回：当前账号存在异常，请切换账号后重试（code=300011）。'
+  });
+  assert.match(label, /评论接口受限/);
+});
+
+test('describeResultFailureStage maps login gate failures to layered stage', () => {
+  assert.ok(helpers, 'ui_helpers module should exist');
+  const label = helpers.describeResultFailureStage({
+    status: 'failed',
+    error: '当前网页端提示“登录查看全部评论内容”，请先在当前 Chrome 会话中登录后重试。'
+  });
+  assert.match(label, /登录门槛/);
+});
+
+test('describeManualActionReason maps manual takeover reason to readable labels', () => {
+  assert.ok(helpers, 'ui_helpers module should exist');
+  assert.match(helpers.describeManualActionReason('login_required'), /登录/);
+  assert.match(helpers.describeManualActionReason('captcha'), /验证码/);
+  assert.match(helpers.describeManualActionReason('risk_control'), /风控|账号/);
+});
+
+test('buildErrorDisplay returns manual handoff hints for login gate failures', () => {
+  assert.ok(helpers, 'ui_helpers module should exist');
+  const result = helpers.buildErrorDisplay('当前网页端提示“登录查看全部评论内容”，请先在当前 Chrome 会话中登录后重试。');
+  assert.match(result.title, /登录门槛/);
+  assert.equal(result.hints.some((hint) => /当前浏览器|处理后/.test(hint)), true);
+  assert.equal(result.actions.some((action) => action.id === 'open_login_browser'), true);
+  assert.equal(result.actions.some((action) => action.id === 'refresh_browser_status'), true);
 });
 
 test('describeSavedCollection derives final folder name from filepath', () => {

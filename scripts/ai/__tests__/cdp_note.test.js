@@ -7,6 +7,8 @@ const {
   buildBrowserTargets,
   buildSingleNote,
   ensureCommentsReady,
+  extractNoteCoreDetail,
+  extractNoteDetail,
   extractImageUrlsFromStateNote,
   expandAllComments,
   getTabWsUrl,
@@ -31,6 +33,8 @@ test('buildSingleNote maps extracted detail into 单条笔记保存 note shape',
       date: '2026-03-08',
       tags: ['标签1'],
       images: ['https://example.com/a.jpg'],
+      noteType: 'video',
+      hasVideoMedia: true,
       comments: [{ commentId: 'c1', author: '评论者', content: '有用评论', likeCount: 3 }],
       url: 'https://www.xiaohongshu.com/explore/abc123'
     },
@@ -47,6 +51,8 @@ test('buildSingleNote maps extracted detail into 单条笔记保存 note shape',
   assert.equal(note.accountKey, 'nick_u1');
   assert.equal(note.comments.length, 1);
   assert.equal(note.comments[0].commentId, 'c1');
+  assert.equal(note.noteType, 'video');
+  assert.equal(note.hasVideoMedia, true);
 });
 
 test('buildBoardNote preserves board collection', () => {
@@ -66,6 +72,57 @@ test('buildBoardNote preserves board collection', () => {
 
   assert.equal(note.collection, 'AI');
   assert.equal(note.noteUrl, 'https://www.xiaohongshu.com/explore/abc123');
+});
+
+test('extractNoteCoreDetail falls back to state images when DOM images are empty', async () => {
+  const detail = await extractNoteCoreDetail(null, {
+    evaluate: async () => ({
+      url: 'https://www.xiaohongshu.com/explore/abc123',
+      title: '标题',
+      content: '正文',
+      author: '作者',
+      date: '2026-04-06',
+      tags: ['标签'],
+      images: [],
+      stateNote: {
+        imageList: [
+          {
+            urlDefault: 'http://example.com/default-1.webp',
+            infoList: [
+              { imageScene: 'WB_DFT', url: 'http://example.com/default-1.webp' }
+            ]
+          }
+        ]
+      }
+    })
+  });
+
+  assert.deepEqual(detail.images, ['https://example.com/default-1.webp']);
+  assert.equal(detail.title, '标题');
+});
+
+test('extractNoteDetail composes core detail and comment diagnostics', async () => {
+  const detail = await extractNoteDetail(null, {
+    extractNoteCoreDetailFn: async () => ({
+      url: 'https://www.xiaohongshu.com/explore/abc123',
+      title: '标题',
+      content: '正文',
+      author: '作者',
+      date: '2026-04-06',
+      tags: [],
+      images: ['https://example.com/a.jpg']
+    }),
+    collectNoteCommentDiagnosticsFn: async () => ({
+      comments: [{ commentId: 'c1', content: '评论1' }],
+      commentTotal: 3,
+      commentError: '评论可能未完整加载：页面显示共 3 条，当前抓取 1 条。',
+      commentWarningCode: 'comment_incomplete'
+    })
+  });
+
+  assert.equal(detail.title, '标题');
+  assert.equal(detail.comments.length, 1);
+  assert.equal(detail.commentWarningCode, 'comment_incomplete');
 });
 
 test('extractImageUrlsFromStateNote falls back to imageList urls when DOM images are unavailable', () => {
@@ -153,6 +210,7 @@ test('expandAllComments keeps clicking while delayed updates still reveal more c
       clicks.push('clicked');
       return true;
     },
+    scrollMore: async () => true,
     waitForStateChange: async () => waitResults.shift() || { changed: false, state: { commentCount: 16, buttonCount: 0 } },
     expandReplies: false,
     throttleMs: 0,
@@ -235,6 +293,7 @@ test('expandAllComments honors env max rounds when maxRounds is not provided', a
       clicks.push('clicked');
       return true;
     },
+    scrollMore: async () => true,
     waitForStateChange: async () => ({
       changed: true,
       state: { commentCount: 1, buttonCount: 1 }

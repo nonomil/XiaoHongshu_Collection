@@ -1,0 +1,48 @@
+{
+  "generatedAt": "2026-03-26T11:30:00+08:00",
+  "baseUrl": "http://127.0.0.1:3041",
+  "captures": [
+    {
+      "file": "desktop-home.png",
+      "url": "http://127.0.0.1:3041",
+      "viewport": {
+        "width": 1440,
+        "height": 1200
+      },
+      "state": "desktop-initial",
+      "title": "多源收藏本地归档工作台",
+      "highlights": [
+        "三栏工作台布局",
+        "浏览器状态双层信息卡",
+        "最近任务卡片"
+      ]
+    },
+    {
+      "file": "mobile-home.png",
+      "url": "http://127.0.0.1:3041",
+      "viewport": {
+        "width": 430,
+        "height": 932
+      },
+      "state": "mobile-initial",
+      "title": "多源收藏本地归档工作台",
+      "highlights": [
+        "移动端快捷入口",
+        "设置按钮可见",
+        "按钮未断行"
+      ]
+    }
+  ],
+  "verification": [
+    {
+      "command": "node --test scripts/ai/__tests__/ui_index.test.js scripts/ai/__tests__/ui_markup.test.js scripts/ai/__tests__/ui_server.test.js scripts/ai/__tests__/ui_collection_switch.test.js scripts/ai/__tests__/ui_task_history.test.js scripts/ai/__tests__/ui_browser_session.test.js",
+      "result": "pass",
+      "count": "57/57"
+    },
+    {
+      "command": "npm test",
+      "result": "pass",
+      "count": "368/368"
+    }
+  ]
+}
